@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAssistantRuntime, useAuiState } from '@assistant-ui/react';
 import { DropdownMenu } from 'radix-ui';
 import { MSymbol } from './command-desk/MSymbol';
-import { CURATED_MODELS, DEFAULT_MODEL as SHARED_DEFAULT_MODEL, type PickerModel } from '../../shared/models';
+import { CURATED_MODELS, DEFAULT_MODEL as SHARED_DEFAULT_MODEL, supersededModelLabel, type PickerModel } from '../../shared/models';
 
 /**
  * The roster this module renders.
@@ -77,7 +77,7 @@ function readEffort(): EffortId {
  * Those fall back to the raw id so the header never claims the wrong model.
  */
 export function formatModelLabel(id: string): string {
-  return MODELS.find((m) => m.id === id)?.label ?? id;
+  return MODELS.find((m) => m.id === id)?.label ?? supersededModelLabel(id) ?? id;
 }
 
 /** Display label for an effort id; unknown values pass through unchanged. */

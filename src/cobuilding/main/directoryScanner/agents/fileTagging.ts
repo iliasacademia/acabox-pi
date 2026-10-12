@@ -7,6 +7,7 @@ import { upsertScannedFiles } from "../../db/scannedFilesRepository";
 import { createBriefing } from "../../db/briefingsRepository";
 import { extractText } from "../../fileMonitor/textExtractor";
 import { REFERENCES_DIR, REFERENCES_INDEX } from "../../../shared/paths";
+import { BACKGROUND_MODEL, BACKGROUND_REQUEST, messageText } from "../../../shared/models";
 import {
   SYSTEM_PROMPT_PREAMBLE,
   buildCommonQueryOptions,
@@ -36,7 +37,7 @@ export async function runFileTaggingAgent(
     prompt: buildPrompt(ctx.directoryPaths, ctx.treeOutputs),
     options: {
       ...buildCommonQueryOptions(ctx),
-      model: "claude-haiku-4-5-20251001",
+      model: BACKGROUND_MODEL,
       systemPrompt: buildSystemPrompt(),
       maxTurns: 15,
       maxBudgetUsd: 1,
@@ -122,7 +123,7 @@ async function autoTagReferencePdfs(
 
       const excerpt = text.slice(0, 1500);
       const message = await client.messages.create({
-        model: "claude-haiku-4-5-20251001",
+        ...BACKGROUND_REQUEST,
         max_tokens: 10,
         messages: [
           {
@@ -139,8 +140,7 @@ ${excerpt}`,
         ],
       });
 
-      const block = message.content[0] as { type: string; text?: string };
-      const answer = block?.type === "text" ? block.text?.trim().toUpperCase() : "";
+      const answer = messageText(message).trim().toUpperCase();
       if (answer?.startsWith("YES")) {
         results.push({
           file_path: relPath,
@@ -427,7 +427,7 @@ async function convertSingleReference(
 
   try {
     const message = await client.messages.create({
-      model: "claude-haiku-4-5-20251001",
+      ...BACKGROUND_REQUEST,
       max_tokens: 100,
       messages: [
         {
@@ -442,9 +442,7 @@ ${excerpt}`,
       ],
     });
 
-    const block = message.content[0] as { type: string; text?: string };
-    const extracted =
-      block && block.type === "text" && block.text ? block.text.trim() : "";
+    const extracted = messageText(message).trim();
     if (extracted && extracted !== "UNKNOWN") {
       title = sanitizeFilename(extracted);
     }
@@ -577,8 +575,8 @@ async function enrichManuscripts(
 
       const fileName = filePath.split("/").pop() ?? filePath;
       const message = await client.messages.create({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 300,
+        ...BACKGROUND_REQUEST,
+        max_tokens: 400,
         messages: [
           {
             role: "user",
@@ -596,9 +594,7 @@ Output JSON only. No prose, no code fences.`,
         ],
       });
 
-      const block = message.content[0] as { type: string; text?: string };
-      const text =
-        block && block.type === "text" && block.text ? block.text : "";
+      const text = messageText(message);
       const jsonMatch = text.match(/\{[\s\S]*\}/);
 
       let title = "Review your manuscript introduction";

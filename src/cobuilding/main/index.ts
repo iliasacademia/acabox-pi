@@ -108,7 +108,7 @@ import {
   getApiCounters,
 } from './apiStore';
 import { apiProxy, callerWithGrants, performApiRequest, setToolGrantResolver } from './apiProxy';
-import { allowedModelIds, DEFAULT_MODEL, mergeModels } from '../shared/models';
+import { allowedModelIds, BACKGROUND_MODEL, BACKGROUND_REQUEST, DEFAULT_MODEL, mergeModels, messageText } from '../shared/models';
 import { discoveredModels, discoveryError, refreshModels } from './modelCatalog';
 import { API_CATALOG, interpretApiTest, type ApiConfig } from '../shared/apis';
 import { buildApiKeyStatus } from '../shared/apiKeyCheck';
@@ -2188,8 +2188,8 @@ async function generateSessionTitle(sessionId: string, firstMessage: string): Pr
     if (!apiKey) return;
     const client = new Anthropic({ apiKey, baseURL });
     const response = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 30,
+      ...BACKGROUND_REQUEST,
+      max_tokens: 40,
       messages: [
         {
           role: 'user',
@@ -2197,7 +2197,7 @@ async function generateSessionTitle(sessionId: string, firstMessage: string): Pr
         },
       ],
     });
-    const title = (response.content[0].type === 'text' ? response.content[0].text : '').trim();
+    const title = messageText(response).trim();
     log.info(`[TitleGen] sessionId=${sessionId} title="${title}"`);
     if (title) {
       updateSessionTitle(sessionId, title);
@@ -2430,7 +2430,7 @@ ipcMain.handle('edit-state:get-all', () => {
 // =============================================================================
 
 // Only these models may be requested. Unrecognised values silently fall back
-// to haiku rather than erroring, so agent-written code that omits the field
+// to BACKGROUND_MODEL rather than erroring, so agent-written code that omits the field
 // always gets a sensible default without breaking.
 /**
  * Ids a mini-app may pass to the Claude bridge.
@@ -2577,6 +2577,8 @@ async function validateAnthropicParams(params: unknown, allowedDirs: string[]): 
   model: string;
   max_tokens: number;
   system?: string;
+  /** Set only when the proxy chose the model itself — see the fallback below. */
+  thinking?: { type: 'disabled' };
 }> {
   if (!params || typeof params !== 'object') throw new Error('Invalid params');
   const p = params as Record<string, unknown>;
@@ -2605,9 +2607,15 @@ async function validateAnthropicParams(params: unknown, allowedDirs: string[]): 
 
   // Silently clamp model to the allowlist so agent code that specifies a model
   // always works, even if the model name is slightly wrong or has been removed.
-  const model = typeof p.model === 'string' && anthropicAllowedModels().has(p.model)
-    ? p.model
-    : 'claude-haiku-4-5';
+  //
+  // The fallback sends thinking OFF, because the code that relies on it was
+  // written for Haiku 4.5, which never thought unasked: the skill docs taught
+  // `msg.content[0].text`, and Haiku 5.5's default thinking puts a thinking
+  // block at index 0 and spends the 1024-token default before the answer. A
+  // model the app named explicitly is passed through untouched — that choice,
+  // thinking included, is the app's.
+  const requested = typeof p.model === 'string' && anthropicAllowedModels().has(p.model) ? p.model : null;
+  const model = requested ?? BACKGROUND_MODEL;
 
   // Clamp rather than reject so the call still succeeds with a safe value.
   const max_tokens = typeof p.max_tokens === 'number' && p.max_tokens > 0
@@ -2618,7 +2626,7 @@ async function validateAnthropicParams(params: unknown, allowedDirs: string[]): 
   if (typeof p.system === 'string' && p.system.length > ANTHROPIC_MAX_SYSTEM_CHARS) throw new Error(`system prompt exceeds ${ANTHROPIC_MAX_SYSTEM_CHARS} characters`);
   const system = typeof p.system === 'string' ? p.system : undefined;
 
-  return { messages, model, max_tokens, system };
+  return { messages, model, max_tokens, system, ...(requested ? {} : { thinking: { type: 'disabled' as const } }) };
 }
 
 // Non-streaming completion. Uses ipcMain.handle so the result is automatically
@@ -2637,6 +2645,7 @@ ipcMain.handle('anthropic:complete', async (_event, params: unknown) => {
     max_tokens: validated.max_tokens,
     messages: validated.messages,
     ...(validated.system ? { system: validated.system } : {}),
+    ...(validated.thinking ? { thinking: validated.thinking } : {}),
   });
 });
 
@@ -2680,6 +2689,7 @@ ipcMain.on('anthropic:stream', async (event, { streamKey, params }: { streamKey:
     max_tokens: validated.max_tokens,
     messages: validated.messages,
     ...(validated.system ? { system: validated.system } : {}),
+    ...(validated.thinking ? { thinking: validated.thinking } : {}),
   });
 
   // Abort the SDK stream immediately if the renderer is destroyed (e.g. the

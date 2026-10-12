@@ -65,7 +65,12 @@ interface BridgeErrorAPI {
 
 export interface AnthropicMessage {
   id: string;
-  content: Array<{ type: 'text'; text: string }>;
+  /** Models that think put thinking blocks first — find the text by `type`. */
+  content: Array<
+    | { type: 'text'; text: string }
+    | { type: 'thinking'; thinking: string; signature: string }
+    | { type: 'redacted_thinking'; data: string }
+  >;
   model: string;
   usage: { input_tokens: number; output_tokens: number };
 }

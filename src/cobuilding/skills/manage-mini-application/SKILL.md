@@ -707,10 +707,11 @@ Use `window.anthropicAPI` — **do NOT read `ANTHROPIC_API_KEY` from env, pass i
 const msg = await window.anthropicAPI.complete({
   messages: [{ role: 'user', content: userText }],
   system: 'You are a helpful assistant.',   // optional
-  model: 'claude-haiku-4-5-20251001',       // optional, this is the default
+  // model: omit for claude-haiku-5-5 with thinking off — fast and cheap
   max_tokens: 1024,                         // optional, this is the default
 });
-const reply = msg.content[0].text;
+// Read by type: models that think put thinking blocks before the text.
+const reply = msg.content.find((b) => b.type === 'text')?.text ?? '';
 
 // Streaming — onChunk fires for each text delta
 let output = '';

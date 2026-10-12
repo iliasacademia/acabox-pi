@@ -18,7 +18,7 @@ import { ensurePythonVenv } from '../pythonSetup';
 import { listConnectorsWithSecrets } from '../connectorsStore';
 import { listApis } from '../apiStore';
 import { apiProxy } from '../apiProxy';
-import { DEFAULT_MODEL } from '../../shared/models';
+import { BACKGROUND_REQUEST, DEFAULT_MODEL, messageText } from '../../shared/models';
 import {
   API_BASE_ENV,
   API_PROXY_TOKEN_HEADER,
@@ -610,7 +610,7 @@ async function generateManifestForApp(agentDir: string, dirName: string): Promis
 
   const client = new Anthropic({ apiKey: manifestApiKey, baseURL: manifestBaseURL });
   const message = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
+    ...BACKGROUND_REQUEST,
     max_tokens: 400,
     messages: [{
       role: 'user',
@@ -628,8 +628,7 @@ Output JSON only. No prose, no code fences.`,
     }],
   });
 
-  const block = message.content[0] as { type: string; text?: string };
-  const text = (block && block.type === 'text' && block.text) ? block.text : '';
+  const text = messageText(message);
   const jsonMatch = text.match(/\{[\s\S]*\}/);
   if (!jsonMatch) throw new Error('No JSON in model response');
 

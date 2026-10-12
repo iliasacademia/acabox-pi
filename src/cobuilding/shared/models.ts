@@ -50,8 +50,8 @@ export const CURATED_MODELS: readonly PickerModel[] = [
   { id: 'claude-opus-5-5', label: 'Opus 5.5', description: 'Newest Opus, most capable for ambitious work' },
   { id: 'claude-opus-5', label: 'Opus 5', description: 'Previous-generation Opus' },
   { id: 'claude-opus-4-8', label: 'Opus 4.8', description: 'Older Opus' },
-  { id: 'claude-sonnet-5', label: 'Sonnet 5', description: 'Most efficient for everyday tasks' },
-  { id: 'claude-haiku-4-5', label: 'Haiku 4.5', description: 'Fastest for quick answers' },
+  { id: 'claude-sonnet-5-5', label: 'Sonnet 5.5', description: 'Most efficient for everyday tasks' },
+  { id: 'claude-haiku-5-5', label: 'Haiku 5.5', description: 'Fastest for quick answers' },
 ] as const;
 
 /**
@@ -62,13 +62,30 @@ export const CURATED_MODELS: readonly PickerModel[] = [
  * `claude-fable-5` from this set and the next discovery would re-add it to the
  * picker as if it were a new release.
  */
-export const SUPERSEDED_MODEL_IDS: readonly string[] = [
-  'claude-fable-5',
-  'claude-opus-4-7',
-  'claude-opus-4-6',
-  'claude-sonnet-4-6',
-  'claude-haiku-4-5-20251001',
-] as const;
+const SUPERSEDED_MODELS: readonly { id: string; label: string }[] = [
+  { id: 'claude-fable-5', label: 'Fable 5' },
+  { id: 'claude-opus-4-7', label: 'Opus 4.7' },
+  { id: 'claude-opus-4-6', label: 'Opus 4.6' },
+  { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
+  { id: 'claude-sonnet-5', label: 'Sonnet 5' },
+  { id: 'claude-haiku-4-5', label: 'Haiku 4.5' },
+  { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
+];
+
+export const SUPERSEDED_MODEL_IDS: readonly string[] = SUPERSEDED_MODELS.map((m) => m.id);
+
+/**
+ * The label for a model that has left the picker, or undefined.
+ *
+ * A chat is pinned to its model for life, so a chat started on Haiku 4.5
+ * still names it after Haiku 5.5 replaced it in the picker — and without
+ * this it would name it as the raw id `claude-haiku-4-5`. Exact ids only: a
+ * snapshot id we have never seen still shows verbatim, never as the nearest
+ * label, so the chip cannot claim a model the chat is not running.
+ */
+export function supersededModelLabel(id: string): string | undefined {
+  return SUPERSEDED_MODELS.find((m) => m.id === id)?.label;
+}
 
 /**
  * Models this account CAN see but Acabox cannot run, because the Claude Code
@@ -151,6 +168,49 @@ export const DEFAULT_MODEL = 'claude-opus-5-5';
  * blast radius of being wrong about the API.
  */
 export const MAX_AUTO_ADDED_MODELS = 6;
+
+/**
+ * The model for Acabox's own small calls — chat titles, tool manifest
+ * metadata, the scanner's classifiers — and the mini-app proxy's fallback.
+ *
+ * Haiku 5.5 since 2026-10-12, replacing Haiku 4.5: $0.10/$0.50 per MTok
+ * against $1/$5, for calls nobody asked for, so the saving is pure. These are
+ * calls the user never chose, which is exactly why they belong on the
+ * cheapest model that does them well.
+ */
+export const BACKGROUND_MODEL = 'claude-haiku-5-5';
+
+/**
+ * Request fields every direct background call sends with `BACKGROUND_MODEL`.
+ *
+ * Haiku 4.5 thought only when asked; Haiku 5.5 thinks by default, and
+ * thinking counts toward `max_tokens`. Every background call has a cap sized
+ * for its answer alone — 10 tokens for a YES/NO, 30 for a title — so with
+ * thinking on, the cap can be spent before any text is written and the call
+ * returns nothing. Thinking off keeps each cap meaning what it meant, and is
+ * how these calls ran on Haiku 4.5 anyway. `disabled` is accepted only at
+ * effort low/medium/high, hence the explicit `low`.
+ */
+export const BACKGROUND_REQUEST = {
+  model: BACKGROUND_MODEL,
+  thinking: { type: 'disabled' },
+  output_config: { effort: 'low' },
+} as const;
+
+/**
+ * The text of a Messages API response, read by block TYPE.
+ *
+ * `content[0].text` was how every caller here read a reply, and it is only
+ * right when nothing precedes the text. A model that thinks returns its
+ * thinking blocks first, so position-0 reads an empty string — a title that
+ * silently never arrives.
+ */
+export function messageText(message: { content: ReadonlyArray<{ type: string; text?: string }> }): string {
+  return message.content
+    .filter((b) => b.type === 'text' && typeof b.text === 'string')
+    .map((b) => b.text)
+    .join('');
+}
 
 /** What a newly discovered model says until someone curates it. */
 const DISCOVERED_DESCRIPTION = 'New from Anthropic — may need an Acabox update';

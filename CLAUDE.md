@@ -178,7 +178,66 @@ to `PATH`.
   SIGKILLs the suite mid-run and the tail prints `[exited with code 0]`
   from the pipe, which reads as a pass. Measured 2026-09-18.
 
-## Status (last updated 2026-10-01)
+## Status (last updated 2026-10-12)
+
+**Sonnet 5.5 and Haiku 5.5: SDK 0.3.280 → 0.3.296, and Acabox's own small
+calls moved to Haiku 5.5 (2026-10-12).** Asked as "new Anthropic models are
+out — should we update?"
+- **Unlike Fable 5.1 and Opus 5.5, the old CLI did not refuse these models.
+  It ran them, which made the problem quieter.** Measured on 2.1.280: both
+  answered, but `modelUsage` said `costBasis: "unknown"` and
+  `contextWindow: 200000` (the real window is 1M), and Haiku 5.5 was billed at
+  a fallback rate about 20x its list price. So T10's fold-line and header
+  dollars would have been wrong, and long chats would likely have compacted
+  around 200K (inferred, not observed). Discovery had listed both since
+  10-01 and 10-09, labelled "may need an Acabox update", which was true.
+  **The lesson: a model that runs is not a model the CLI knows. Check
+  `modelUsage.costBasis` is `list`, not just that a turn returns.**
+- **Patch bump, all peers already satisfied** (checked before installing);
+  `@modelcontextprotocol/sdk` verified still exactly 1.29.0; the binary is
+  2.1.296. On it, all three of Sonnet 5.5, Haiku 5.5 and Opus 5.5 return
+  `costBasis: "list"` and a 1M window. Haiku 5.5's cost matches list price to
+  the cent, and the CLI's `outputFormat: json_schema` (file tagging's path)
+  works on Haiku 5.5.
+- **Roster:** Sonnet 5.5 and Haiku 5.5 are curated; Sonnet 5 and Haiku 4.5 step
+  down to superseded (they must stay KNOWN, or discovery re-adds them as new).
+  The default stays Opus 5.5. **Superseded ids now carry labels**
+  (`supersededModelLabel`). Without them, a chat pinned to Haiku 4.5 showed its
+  locked chip as the raw `claude-haiku-4-5`. A test caught this, and it was
+  then seen fixed live. Exact ids only: unknown snapshot ids still show
+  verbatim.
+- **Background calls → Haiku 5.5** (`BACKGROUND_MODEL`, $0.10/$0.50 vs $1/$5):
+  title generation, manifest metadata, the scanner's three direct classifiers
+  and its tagging agent, plus the mini-app proxy's fallback. That is roughly
+  10x cheaper, with no added calls.
+  - **The trap is that Haiku 5.5 thinks by default**, and thinking counts
+    toward `max_tokens`. Every one of these calls has a cap sized for the
+    answer alone (10 for a YES/NO, 30 for a title), and every one read
+    `content[0].text`, which is a thinking block on a thinking model. So the
+    direct calls spread `BACKGROUND_REQUEST`: thinking off at effort `low`
+    (`disabled` 400s at xhigh/max), which is how they ran on 4.5. Replies are
+    read with `messageText()`, by block type.
+  - The title cap went 30 → 40 and the briefing cap 300 → 400, because the
+    tokenizer is about 30% denser: a real title used 19 of 30.
+- **Proxy fallback:** a mini-app that names no model gets Haiku 5.5 with thinking
+  off, since the docs taught `content[0].text`. A model the app names is passed
+  through untouched. Docs now default to Haiku 5.5 and read the answer by type,
+  and `bridge.ts`'s `AnthropicMessage` type now admits thinking blocks. esbuild
+  doesn't typecheck, so old apps are unaffected.
+- Verified: tsc clean; **2025/2025 across 150 suites** (+3); `--smoke-test`
+  exits 0; `--smoke-test-mcp` PASS; the rebuilt bundle serves `/health`
+  standalone. Real Haiku 5.5 calls in all four request shapes returned text-only
+  replies, `end_turn`, about 1 s each. Live over CDP on `npm start`: the picker
+  listed Sonnet 5.5 and Haiku 5.5 with no discovered extras. A real Haiku 5.5
+  turn produced the pin `claude-haiku-5-5` and a title from the new path in
+  0.9 s ("Volcano Plot RNA-seq Request"), and its result row is list-priced with
+  a 1M window. The dev profile's stale Haiku 4.5 selection fell back to Opus 5.5.
+- **Left alone:** `researchProfile.ts` and `calendarAgentSession.ts` run Sonnet
+  4.6 through the CLI, which knows it; the `westernBlotAnnotator` template names
+  `claude-opus-4-20250514`. Neither was part of this change. The second has
+  fallen to the proxy default whenever discovery stops listing it.
+
+## Status (2026-10-01)
 
 **Review increment 1 shipped: the truth-week fixes and the owner's four
 decisions (2026-10-01).** Twelve tickets from `docs/design/product-review-2026-09-30.md`,

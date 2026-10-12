@@ -1,4 +1,6 @@
 import {
+  BACKGROUND_MODEL,
+  BACKGROUND_REQUEST,
   CURATED_MODELS,
   DEFAULT_MODEL,
   KNOWN_MODEL_IDS,
@@ -7,6 +9,7 @@ import {
   UNSUPPORTED_MODEL_IDS,
   allowedModelIds,
   mergeModels,
+  messageText,
   type DiscoveredModel,
 } from '../models';
 
@@ -183,5 +186,42 @@ describe('DEFAULT_MODEL', () => {
   test('is Opus 5.5 (owner decision 2026-10-01) and is allowed in mini-apps', () => {
     expect(DEFAULT_MODEL).toBe('claude-opus-5-5');
     expect(allowedModelIds([]).has(DEFAULT_MODEL)).toBe(true);
+  });
+});
+
+describe('the 5.5 generation (2026-10-12)', () => {
+  test('offers Sonnet 5.5 and Haiku 5.5, with their predecessors superseded, not unknown', () => {
+    // SDK 0.3.280 ran both but priced them as "unknown" and assumed a 200K
+    // window; 0.3.296 knows them. The predecessors must stay KNOWN, or the
+    // next discovery would re-add them to the picker as new releases.
+    const curated = ids([...CURATED_MODELS]);
+    expect(curated).toEqual(expect.arrayContaining(['claude-sonnet-5-5', 'claude-haiku-5-5']));
+    expect(curated).not.toContain('claude-sonnet-5');
+    expect(curated).not.toContain('claude-haiku-4-5');
+    expect(SUPERSEDED_MODEL_IDS).toEqual(expect.arrayContaining(['claude-sonnet-5', 'claude-haiku-4-5']));
+    expect(mergeModels(KNOWN_ROSTER).map((m) => m.id)).not.toContain('claude-sonnet-5');
+  });
+});
+
+describe('background calls', () => {
+  test('run on Haiku 5.5 with thinking off, which is only legal at effort low..high', () => {
+    expect(BACKGROUND_MODEL).toBe('claude-haiku-5-5');
+    expect(BACKGROUND_REQUEST.model).toBe(BACKGROUND_MODEL);
+    expect(BACKGROUND_REQUEST.thinking).toEqual({ type: 'disabled' });
+    expect(['low', 'medium', 'high']).toContain(BACKGROUND_REQUEST.output_config.effort);
+  });
+
+  test('messageText reads past leading thinking blocks', () => {
+    // The shape a thinking model returns: content[0] is thinking, so the old
+    // position-0 read gave '' — a title that silently never arrived.
+    const reply = {
+      content: [
+        { type: 'thinking', thinking: '', signature: 'sig' },
+        { type: 'text', text: 'Liver Atlas Review' },
+      ],
+    };
+    expect(messageText(reply)).toBe('Liver Atlas Review');
+    expect(messageText({ content: [{ type: 'thinking' }] })).toBe('');
+    expect(messageText({ content: [] })).toBe('');
   });
 });

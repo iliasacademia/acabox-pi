@@ -98,7 +98,7 @@ Call Claude from within a mini-app. The API key is managed by the host — it is
 
 **`params` fields:**
 - `messages` *(required)* — `Array<{ role: "user" | "assistant"; content: string | ContentBlock[] }>`
-- `model` *(optional)* — defaults to `"claude-haiku-4-5-20251001"`
+- `model` *(optional)* — defaults to `"claude-haiku-5-5"`, with thinking off. A model you name explicitly may think first: its reply can start with `thinking` blocks, so always read the answer by block type (below), never as `content[0]`.
 - `max_tokens` *(optional)* — defaults to `1024`
 - `system` *(optional)* — system prompt string
 
@@ -117,7 +117,7 @@ Only `file` and `base64` source types are supported. URL sources are not allowed
 const msg = await window.anthropicAPI.complete({
   messages: [{ role: 'user', content: 'Summarize this in one sentence: ...' }],
 });
-console.log(msg.content[0].text);
+console.log(msg.content.find((b) => b.type === "text")?.text ?? "");
 
 // Streaming
 let output = '';
