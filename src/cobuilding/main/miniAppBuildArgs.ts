@@ -16,7 +16,12 @@ export interface MiniAppEsbuildArgsInput {
   reusableAlias: string;
   /** e.g. reactAliasFlags(npmPrefix) — passed in so this module stays electron-free. */
   extraFlags: string[];
-  /** From ensureJsxEditRuntime; null = build without stamps. */
+  /**
+   * From ensureJsxEditRuntime; null = build without stamps. This function adds
+   * the flags whenever it is given a directory. Whether stamps belong on a
+   * build at all is the caller's call: buildMiniApp passes null when
+   * `extraFlags` has no `react` alias (see there for why).
+   */
   jsxRuntimeDir: string | null;
 }
 

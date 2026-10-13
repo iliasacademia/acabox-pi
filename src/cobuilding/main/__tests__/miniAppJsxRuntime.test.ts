@@ -238,6 +238,12 @@ const ANCHOR_CASES: Array<{ id: string; fileName: string; expected: string }> = 
     fileName: '.applications/tool/src/.applications/inner.tsx',
     expected: '.applications/tool/src/.applications/inner.tsx',
   },
+  // The same, reached through ../: the FIRST .applications segment is the anchor.
+  {
+    id: 'dotdot-inner',
+    fileName: '../../ws/.applications/tool/src/.applications/inner.tsx',
+    expected: '.applications/tool/src/.applications/inner.tsx',
+  },
   // Only a whole path segment counts.
   { id: 'lookalike', fileName: '../x/my.applications/tool/App.tsx', expected: '../x/my.applications/tool/App.tsx' },
   { id: 'none', fileName: '../../elsewhere/App.tsx', expected: '../../elsewhere/App.tsx' },

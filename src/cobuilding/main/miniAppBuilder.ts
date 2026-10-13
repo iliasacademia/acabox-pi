@@ -144,23 +144,32 @@ export async function buildMiniApp(workspacePath: string, dirName: string): Prom
   // so it lives in userData, where the agent's workspace edits cannot reach it.
   // It is only an addition: if it cannot be written the tool still builds,
   // just without stamps.
-  const wantedRuntimeDir = path.join(app.getPath('userData'), 'mini-app-jsx-runtime');
-  const jsxRuntimeDir = ensureJsxEditRuntime(wantedRuntimeDir);
-  if (!jsxRuntimeDir) {
-    log.warn(`[MiniAppBuilder] ${dirName}: couldn't write the JSX stamp runtime to ${wantedRuntimeDir} — building without source stamps, so "Edit text" won't work on this build`);
+  //
+  // It also needs React, and it can only reach the tool's through the `react`
+  // alias. esbuild resolves the runtime's `react/jsx-runtime` from the
+  // runtime's own directory in userData, not from the tool's, so a React that
+  // only the tool's own node_modules provides is out of its sight; NODE_PATH
+  // would not help, it is the same npm-site the alias is made from. Without the
+  // alias a stamped build can fail on an import the unstamped one resolves, and
+  // the error the agent is then shown names a host file outside the workspace.
+  // So no `react` alias, no stamps: that build is exactly what it always was.
+  const extraFlags = reactAliasFlags(getNpmPrefix());
+  let jsxRuntimeDir: string | null = null;
+  if (extraFlags.some((flag) => flag.startsWith('--alias:react='))) {
+    const wantedRuntimeDir = path.join(app.getPath('userData'), 'mini-app-jsx-runtime');
+    jsxRuntimeDir = ensureJsxEditRuntime(wantedRuntimeDir);
+    if (!jsxRuntimeDir) {
+      log.warn(`[MiniAppBuilder] ${dirName}: couldn't write the JSX stamp runtime to ${wantedRuntimeDir} — building without source stamps, so "Edit text" won't work on this build`);
+    }
+  } else {
+    log.info(`[MiniAppBuilder] ${dirName}: no React in the npm-site (no \`react\` alias) — building without source stamps, so "Edit text" won't work on this build`);
   }
 
   // execLogged (not exec) so the invocation lands in the command log / Debug
   // tab. Build failures used to leave no trace anywhere.
   const result = await containerService.execLogged([
     resolved.bin,
-    ...miniAppEsbuildArgs({
-      entry,
-      outfile,
-      reusableAlias,
-      extraFlags: reactAliasFlags(getNpmPrefix()),
-      jsxRuntimeDir,
-    }),
+    ...miniAppEsbuildArgs({ entry, outfile, reusableAlias, extraFlags, jsxRuntimeDir }),
   ], { source: 'build', appDirName: dirName });
 
   if (result.exitCode !== 0) {

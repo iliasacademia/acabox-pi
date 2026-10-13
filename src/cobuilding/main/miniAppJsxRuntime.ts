@@ -33,9 +33,18 @@
  *     carries no source), which the editor handles like any unstamped parent.
  *
  * The runtime lives in userData, not the workspace: it is host code the agent
- * must not be able to edit. It imports `react/jsx-runtime`, which resolves the
- * same way the tool's own JSX import does (the `react` alias, else NODE_PATH),
- * so it always shares the tool's single React.
+ * must not be able to edit. It imports `react/jsx-runtime`, and esbuild resolves
+ * an import from the importing file's own directory, so this one is looked up
+ * from userData and NOT from the tool's directory: a `node_modules` beside or
+ * above the tool is never searched for it. What gets it onto the tool's single
+ * React is the `react` alias (`reactAliasFlags`), which applies to every
+ * importer in the bundle. NODE_PATH is searched for every importer too, but it
+ * is the very npm-site that alias is made from, so it never finds React where
+ * the alias does not. Measured 2026-10-13: a tool whose React sits only in its
+ * own `node_modules` builds without these flags and fails with them, `Could not
+ * resolve "react/jsx-runtime"` located in this file, a host file the agent is
+ * then pointed at. So `buildMiniApp` turns the stamps on only when the `react`
+ * alias exists; without it the build is exactly what it was before stamps.
  *
  * No `electron` import: this module loads under jest.
  */
@@ -79,7 +88,7 @@ export const JSX_EDIT_RUNTIME_SOURCE: string = [
   'function stampFile(fileName) {',
   '  var name = String(fileName);',
   `  if (name.indexOf(${JSON.stringify(`${APPLICATIONS_DIR}/`)}) === 0) return name;`,
-  `  var at = name.lastIndexOf(${JSON.stringify(`/${APPLICATIONS_DIR}/`)});`,
+  `  var at = name.indexOf(${JSON.stringify(`/${APPLICATIONS_DIR}/`)});`,
   '  return at >= 0 ? name.slice(at + 1) : name;',
   '}',
   '// jsxDEV runs for every host element on every render and is handed a new',

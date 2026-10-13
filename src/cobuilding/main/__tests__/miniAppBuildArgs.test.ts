@@ -41,7 +41,10 @@ describe('miniAppEsbuildArgs', () => {
     ]);
   });
 
-  it('with no extra flags (a prefix without React): nothing between the reusable alias and the stamps', () => {
+  // This function only composes what it is given. Whether a build with no `react`
+  // alias should carry stamps at all is buildMiniApp's call, and it says no
+  // (miniAppBuilderStamps.test.ts), so a real build never reaches this shape.
+  it('with no extra flags: nothing between the reusable alias and the stamps', () => {
     expect(miniAppEsbuildArgs({ ...base, extraFlags: [], jsxRuntimeDir: '/rt' })).toEqual([
       '/ws/.applications/demo/src/index.tsx',
       '--bundle',
