@@ -178,9 +178,9 @@ to `PATH`.
   SIGKILLs the suite mid-run and the tail prints `[exited with code 0]`
   from the pipe, which reads as a pass. Measured 2026-09-18.
 
-## Status (POC branch `poc/mini-app-text-edit`, 2026-10-13, not on main)
+## Status (last updated 2026-10-13)
 
-**Edit a tool's text in place: POC, not merged or released.** Asked for as "modify some
+**Edit a tool's text in place: built as a POC, tried by the user ("works great"), shipped in v0.1.30.** Asked for as "modify some
 things in the mini-apps UI myself, not via an agent — an Edit mode, like editing a Word doc".
 The design, tickets and measurements are in `docs/design/mini-app-text-edit-poc.md`.
 - **How it works.**
@@ -243,7 +243,7 @@ The design, tickets and measurements are in `docs/design/mini-app-text-edit-poc.
   - The packaged build.
   - Lazy-loading TypeScript in main.
 
-## Status (last updated 2026-10-12)
+## Status (2026-10-12)
 
 **Sonnet 5.5 and Haiku 5.5: SDK 0.3.280 → 0.3.296, and Acabox's own small
 calls moved to Haiku 5.5 (2026-10-12).** Asked as "new Anthropic models are

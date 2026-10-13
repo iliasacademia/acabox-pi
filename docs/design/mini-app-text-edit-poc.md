@@ -1,6 +1,6 @@
 # Edit a tool's text in place — POC
 
-Status: **POC on branch `poc/mini-app-text-edit`, built, reviewed and verified live on 2026-10-13. Not merged, not released.** Asked for on
+Status: **Built as a POC on 2026-10-13, reviewed, verified live, tried by the user, and shipped in v0.1.30 (merged to main the same day).** Asked for on
 2026-10-13: "I'd like to modify some things in the mini-apps UI myself, not via
 an agent — enter Edit mode and modify any text as if editing a Word doc."
 
