@@ -54,6 +54,8 @@
   cursor: default;
 }
 .cdBtnPrimary--36 { height: 36px; padding: 0 18px; }
+/* Small (h30) variant — tool header, same height as .cdBtnXs--sm. */
+.cdBtnPrimary--sm { height: 30px; padding: 0 12px; font-size: 13px; gap: 6px; }
 
 /* Mono status chip (dot + label), used in headers. */
 .cdStatusChip {
@@ -1644,3 +1646,71 @@
 .cdSteps__body .cdTool.cdTool--error { background: var(--cd-error-bg); }
 .cdSteps__body .cdTool .cdTool__row { height: 28px; padding: 0 8px; }
 .cdSteps__body .cdTool--open .cdTool__out { border: 1px solid var(--cd-border-soft); border-radius: 6px; margin: 2px 0 6px; }
+
+/* ── Edit text (tool viewer) ──────────────────────────────────────
+ * The strip under the tool header while the user changes the tool's text in
+ * place (EditBar in MiniAppViewer). Tokens only.
+ *
+ * The tone colours the status dot, not the words: --cd-busy and --cd-success
+ * are dot colours, and as 12px text on --cd-pale they would not be readable.
+ * Error is dark enough to colour the words too. */
+.cdEditBar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 34px;
+  flex: none;
+  min-width: 0;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--cd-border);
+  background: var(--cd-pale);
+}
+.cdEditBar__label {
+  flex: none;
+  font-family: var(--cd-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--cd-blue);
+  text-transform: uppercase;
+}
+.cdEditBar__dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--cd-idle);
+}
+.cdEditBar__text {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--cd-sans);
+  font-size: 12px;
+  line-height: 15px;
+  color: var(--cd-ink);
+  /* Two lines at most, so the bar stays 34px; the tooltip carries the rest. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.cdEditBar__detail {
+  flex: none;
+  max-width: 40%;
+  font-family: var(--cd-mono);
+  font-size: 11px;
+  color: var(--cd-text2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cdEditBar__ask { flex: none; }
+.cdEditBar--info .cdEditBar__dot { background: var(--cd-idle); }
+.cdEditBar--success .cdEditBar__dot { background: var(--cd-success); }
+.cdEditBar--warning .cdEditBar__dot { background: var(--cd-busy); }
+.cdEditBar--error .cdEditBar__dot { background: var(--cd-error); }
+.cdEditBar--error .cdEditBar__text { color: var(--cd-error); }
+
+/* A menu item that is switched off (View source while editing). */
+.cdMenu__item:disabled { color: var(--cd-stroke-disabled); cursor: default; }
+.cdMenu__item:disabled:hover { background: none; }
+.cdMenu__item:disabled .msi { color: var(--cd-stroke-disabled); }

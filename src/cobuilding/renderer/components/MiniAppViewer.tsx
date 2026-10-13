@@ -14,6 +14,29 @@ import { setToolLifecycle, clearToolStatus, useToolStatus, beginToolActivity } f
 import { toolStatusLabel, toolStatusDetail } from './command-desk/toolStatusDisplay';
 import { ToolShareChip, ToolShareHeaderControls } from './share/ToolShareHeaderControls';
 import { classifyBuildResult, APP_SOURCE_RELATIVE_PATH, AWAITING_SOURCE_POLL_MS, AwaitingSourceView } from './miniAppBuildState';
+import { EDIT_MSG } from '../../shared/miniAppTextEdit';
+import type { TextEditApplyResult, TextEditProbeResult, TextEditRefusal } from '../../shared/miniAppTextEdit';
+import {
+  DONE_WAIT_MS,
+  EDIT_HINT,
+  EDIT_PREPARING,
+  EDIT_UNTRACEABLE,
+  composeComposerText,
+  editReadiness,
+  hostShortcutFor,
+  isTextEntryTarget,
+  askClaudePrompt,
+  barForApply,
+  barForPrepareFailure,
+  barForProbeRefusal,
+  barForSuggestion,
+  barForUndo,
+  contentKey,
+  isDoneSettled,
+  needsLocalReload,
+  parseFrameEditMessage,
+} from './miniAppEditSession';
+import type { EditBarState, FrameEditMessage } from './miniAppEditSession';
 
 interface RequestFixError {
   kind: string;
@@ -66,6 +89,30 @@ type RebuildState =
   | { kind: 'building' }
   | { kind: 'error'; message: string; at: number }
   | { kind: 'awaiting-source'; since: number };
+
+/**
+ * What `MiniAppContent` tells the viewer about edit-mode traffic with the
+ * frame. The content owns the conversation with the frame and with main; the
+ * viewer owns what the user sees (the bar, Undo's state, the Done handshake),
+ * so this is the whole seam between them.
+ */
+type EditEvent =
+  | { kind: 'probe-refused'; reason: TextEditRefusal; message: string }
+  | { kind: 'applied'; result: Extract<TextEditApplyResult, { ok: true }>; oldText: string; newText: string }
+  | { kind: 'refused'; result: Extract<TextEditApplyResult, { ok: false }>; oldText: string; newText: string }
+  | { kind: 'suggest'; oldText: string; newText: string }
+  | { kind: 'shortcut'; action: 'undo' | 'done' }
+  | { kind: 'frame-state'; stamped: number; final: boolean }
+  | { kind: 'revert-failed' }
+  | { kind: 'mode-off-acked' }
+  /** A save started (+1) or finished (-1). The viewer keeps the count: it survives the content remounting. */
+  | { kind: 'inflight-change'; delta: 1 | -1 };
+
+/** The one thing the viewer needs from the tool's frame besides the events above. */
+interface MiniAppContentHandle {
+  /** Post to the tool's frame. False, with nothing sent, while no frame is mounted. */
+  postToFrame(message: unknown): boolean;
+}
 
 interface MiniAppViewerProps {
   dirName: string;
@@ -289,6 +336,230 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
     composerRuntime.send();
   }, [rebuildState, chatOpen, onToggleChat, composerRuntime, dirName]);
 
+  // ── Edit text ───────────────────────────────────────────────────────────────
+  // The user clicks text in the running tool and types over it; main writes the
+  // change into the tool's source. Every rule lives in `miniAppEditSession.ts`
+  // (pure, and tested on its own); this block is state and plumbing.
+  // Design: docs/design/mini-app-text-edit-poc.md.
+  const [editing, setEditing] = useState(false);
+  // The reload nonce as it stood when edit mode began. While editing, the iframe
+  // is keyed on this instead of the live nonce (see `contentKey`), so the build
+  // that every save triggers does not remount the tool under the user's caret.
+  const [heldNonce, setHeldNonce] = useState(reloadNonce ?? 0);
+  // The viewer's own reload, for when no build asked for one.
+  const [localReload, setLocalReload] = useState(0);
+  const [undoDepth, setUndoDepth] = useState(0);
+  const [bar, setBar] = useState<EditBarState>(EDIT_HINT);
+  // Edit mode starts not ready: the frame's probes and commits are ignored until
+  // it reports stamped elements (see `editReadiness`).
+  const [editReady, setEditReady] = useState(false);
+  const editingRef = useRef(false);
+  editingRef.current = editing;
+  const contentRef = useRef<MiniAppContentHandle>(null);
+  // These are read by callbacks that outlive the render that made them (frame
+  // events, the Done timer), so they are refs rather than state.
+  /** An edit was applied or undone this session, so the tool must reload onto the rebuilt bundle. */
+  const dirtyRef = useRef(false);
+  const stampsRebuildTriedRef = useRef(false);
+  /** Saves started and not yet answered, across content remounts. */
+  const inFlightRef = useRef(0);
+  /** Set while Done waits for the frame to confirm and for in-flight saves to land. */
+  const doneRef = useRef<{ acked: boolean; timer: ReturnType<typeof setTimeout> } | null>(null);
+  const reloadNonceRef = useRef(reloadNonce ?? 0);
+  reloadNonceRef.current = reloadNonce ?? 0;
+  const heldNonceRef = useRef(heldNonce);
+  heldNonceRef.current = heldNonce;
+
+  /** The one way out of edit mode: Done, its timeout, and a frame that went away all end here. */
+  const completeEditing = useCallback(() => {
+    if (doneRef.current) {
+      clearTimeout(doneRef.current.timer);
+      doneRef.current = null;
+    }
+    const reload = needsLocalReload({
+      dirty: dirtyRef.current,
+      reloadNonce: reloadNonceRef.current,
+      heldNonce: heldNonceRef.current,
+    });
+    dirtyRef.current = false;
+    setEditing(false);
+    setEditReady(false);
+    // Batched with the line above: one remount, onto the rebuilt bundle.
+    if (reload) setLocalReload((n) => n + 1);
+    setBar(EDIT_HINT);
+  }, []);
+
+  const settleDone = useCallback(() => {
+    const done = doneRef.current;
+    if (done && isDoneSettled({ acked: done.acked, inFlight: inFlightRef.current })) completeEditing();
+  }, [completeEditing]);
+
+  // Done: ask the frame to leave edit mode (it commits an open editor first),
+  // then close once it has confirmed and every save has landed. A frame that
+  // never answers cannot trap the user here, hence the timeout; and with no
+  // frame on screen at all (the tool's page failed to open, or the container
+  // is still starting) there is nobody to wait for.
+  const finishEditing = useCallback(() => {
+    if (doneRef.current) return;
+    if (!contentRef.current?.postToFrame({ type: EDIT_MSG.mode, on: false })) {
+      completeEditing();
+      return;
+    }
+    doneRef.current = { acked: false, timer: setTimeout(completeEditing, DONE_WAIT_MS) };
+  }, [completeEditing]);
+
+  useEffect(() => () => {
+    if (doneRef.current) clearTimeout(doneRef.current.timer);
+  }, []);
+
+  // Edit mode needs the tool itself on screen. If the content is replaced by the
+  // build-failed or still-writing screens, or by the source view, there is no
+  // frame left to edit and no Done button to press (the header hides them), so
+  // edit mode ends on its own. A backstop: none of these is reachable while
+  // editing today, since Rebuild and View source are disabled then.
+  useEffect(() => {
+    if (!editing) return;
+    if (rebuildState.kind === 'error' || rebuildState.kind === 'awaiting-source' || viewingSource) {
+      completeEditing();
+    }
+  }, [editing, rebuildState.kind, viewingSource, completeEditing]);
+
+  const handleStartEdit = useCallback(() => {
+    stampsRebuildTriedRef.current = false;
+    dirtyRef.current = false;
+    setHeldNonce(reloadNonce ?? 0);
+    setEditReady(false);
+    setBar(EDIT_PREPARING);
+    setEditing(true);
+    // Edits from an earlier session are still undoable (main keeps the stack
+    // until the app quits), so Undo must start out enabled when there are any.
+    window.miniAppsAPI.textEdit.undoDepth(dirName).then(setUndoDepth).catch(() => setUndoDepth(0));
+  }, [dirName, reloadNonce]);
+
+  const undoLast = useCallback(async () => {
+    try {
+      const result = await window.miniAppsAPI.textEdit.undo(dirName);
+      setUndoDepth(result.undoDepth);
+      setBar(barForUndo(result));
+      if (result.ok) {
+        dirtyRef.current = true;
+        // The frame put the new text on screen itself; tell it to put the old back.
+        contentRef.current?.postToFrame({ type: EDIT_MSG.revert, editId: result.editId });
+      }
+    } catch {
+      setBar({ tone: 'error', text: "Couldn't undo that change." });
+    }
+  }, [dirName]);
+
+  // Text that cannot be edited in source (the tool computes it while it runs)
+  // becomes a request to Claude instead. It fills the composer and stops there:
+  // sending is the user's decision, so this path costs no model call by itself.
+  const sendRequestToChat = useCallback((oldText: string, newText: string) => {
+    if (!chatOpen) onToggleChat?.();
+    // Appended to a draft, never over it.
+    composerRuntime.setText(composeComposerText(composerRuntime.getState().text ?? '', askClaudePrompt(oldText, newText)));
+    setBar(barForSuggestion());
+  }, [chatOpen, onToggleChat, composerRuntime]);
+
+  // The frame reported, finally, that this bundle carries no source stamps: it
+  // was built with bare esbuild. One rebuild per session adds them. The frame
+  // cannot have an editor open (it is not ready, so its probes get no answer),
+  // which is what makes the reload below safe.
+  const prepareForEditing = useCallback(async () => {
+    stampsRebuildTriedRef.current = true;
+    setBar(EDIT_PREPARING);
+    try {
+      const result = await window.miniAppsAPI.build(dirName);
+      if (!result.ok) {
+        if (editingRef.current) setBar(barForPrepareFailure(result.error));
+        return;
+      }
+    } catch (err) {
+      if (editingRef.current) setBar(barForPrepareFailure(err instanceof Error ? err.message : String(err)));
+      return;
+    }
+    // Edit mode ended while the build ran: Done already released the key.
+    if (!editingRef.current) return;
+    // Main announces the build, but the iframe is held while editing, so the
+    // new bundle only arrives if the viewer asks for it. The held nonce adopts
+    // the live one so Done does not reload a second time.
+    setHeldNonce(reloadNonceRef.current);
+    setLocalReload((n) => n + 1);
+  }, [dirName]);
+
+  const handleFrameState = useCallback((stamped: number, final: boolean) => {
+    switch (editReadiness({ stamped, final, alreadyRebuilt: stampsRebuildTriedRef.current })) {
+      case 'ready':
+        setEditReady(true);
+        setBar((b) => (b === EDIT_PREPARING ? EDIT_HINT : b));
+        return;
+      case 'rebuild':
+        void prepareForEditing();
+        return;
+      case 'give-up':
+        setBar(EDIT_UNTRACEABLE);
+        return;
+      case 'wait':
+        return;
+    }
+  }, [prepareForEditing]);
+
+  const handleEditEvent = useCallback((evt: EditEvent) => {
+    switch (evt.kind) {
+      case 'probe-refused':
+        setBar(barForProbeRefusal(evt));
+        return;
+      case 'applied':
+      case 'refused':
+        setBar(barForApply(evt.result, evt.oldText, evt.newText));
+        setUndoDepth(evt.result.undoDepth);
+        if (evt.result.ok) dirtyRef.current = true;
+        return;
+      case 'suggest':
+        sendRequestToChat(evt.oldText, evt.newText);
+        return;
+      case 'shortcut':
+        if (evt.action === 'undo') void undoLast();
+        else finishEditing();
+        return;
+      case 'frame-state':
+        handleFrameState(evt.stamped, evt.final);
+        return;
+      case 'revert-failed':
+        // The text node the edit lived in is gone; reload to show what is on disk.
+        // The fresh frame reports its own readiness.
+        setEditReady(false);
+        setLocalReload((n) => n + 1);
+        return;
+      case 'mode-off-acked':
+        if (doneRef.current) {
+          doneRef.current.acked = true;
+          settleDone();
+        }
+        return;
+      case 'inflight-change':
+        inFlightRef.current = Math.max(0, inFlightRef.current + evt.delta);
+        settleDone();
+        return;
+    }
+  }, [sendRequestToChat, undoLast, finishEditing, handleFrameState, settleDone]);
+
+  // Host-level shortcuts while editing (the frame has its own for when it has
+  // focus). Typing into the chat composer or any field is left alone.
+  useEffect(() => {
+    if (!editing) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (isTextEntryTarget(e.target as HTMLElement | null)) return;
+      const action = hostShortcutFor(e);
+      if (!action) return;
+      e.preventDefault();
+      if (action === 'undo') void undoLast();
+      else finishEditing();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [editing, undoLast, finishEditing]);
+
   const showBuildError = rebuildState.kind === 'error' && !viewingSource;
   const showAwaitingSource = rebuildState.kind === 'awaiting-source' && !viewingSource;
 
@@ -308,7 +579,15 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
         onToggleChat={onToggleChat}
         nativeToolUrl={nativeToolUrl}
         onBack={onBack}
+        editing={editing}
+        undoDepth={undoDepth}
+        onStartEdit={handleStartEdit}
+        onUndo={undoLast}
+        onDone={finishEditing}
       />
+      {editing && (
+        <EditBar bar={bar} onAskClaude={(ask) => sendRequestToChat(ask.oldText, ask.newText)} />
+      )}
       <div className="miniAppBody">
         {showBuildError ? (
           <BuildErrorView
@@ -344,10 +623,14 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
               />
             ) : (
               <MiniAppContent
-                key={`bundle-${reloadNonce ?? 0}`}
+                ref={contentRef}
+                key={contentKey({ editing, heldNonce, reloadNonce: reloadNonce ?? 0, localReload })}
                 dirName={dirName}
                 workspacePath={workspacePath}
                 appName={appName}
+                editing={editing}
+                editReady={editReady}
+                onEditEvent={handleEditEvent}
               />
             )}
           </ContainerGate>
@@ -371,7 +654,14 @@ const MiniAppHeader: FC<{
   onToggleChat?: () => void;
   nativeToolUrl: string | null;
   onBack?: () => void;
-}> = ({ dirName, appName, appIcon, viewingSource, onToggleSource, onRebuild, onShowInFinder, rebuildState, preBuilt, chatOpen, onToggleChat, nativeToolUrl, onBack }) => {
+  /** Edit text (POC): the user is changing the tool's text in place. */
+  editing: boolean;
+  /** Edits `onUndo` can take back; 0 disables the button. */
+  undoDepth: number;
+  onStartEdit: () => void;
+  onUndo: () => void;
+  onDone: () => void;
+}> = ({ dirName, appName, appIcon, viewingSource, onToggleSource, onRebuild, onShowInFinder, rebuildState, preBuilt, chatOpen, onToggleChat, nativeToolUrl, onBack, editing, undoDepth, onStartEdit, onUndo, onDone }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -421,6 +711,10 @@ const MiniAppHeader: FC<{
   const installing = status.kind === 'installing';
   const working = status.kind === 'working';
   const interrupted = status.kind === 'interrupted' ? status : null;
+  // Edit text needs the tool itself on screen, built, with source to write to.
+  // Not offered for the pre-built tools, the source view, or the screens that
+  // stand in for the tool while it is broken or not written yet.
+  const canEditText = !preBuilt && !viewingSource && !failed && !awaiting;
   const ToolIcon = resolveToolIcon(appIcon);
 
   return (
@@ -456,6 +750,25 @@ const MiniAppHeader: FC<{
           <span className="cdDot cdDot--busy cdDot--pulse" />
           SETTING UP
         </span>
+      ) : editing ? (
+        <>
+          <span className="cdStatusChip">
+            <span className="cdDot cdDot--unread" />
+            EDITING
+          </span>
+          {/* Edit mode must not hide the brake on work the tool is doing. */}
+          {working && (
+            <button
+              type="button"
+              className="cdBtnXs cdBtnXs--sm"
+              title="Stop what this tool is doing"
+              onClick={handleStop}
+            >
+              <MSymbol name="stop_circle" size={15} />
+              Stop
+            </button>
+          )}
+        </>
       ) : working ? (
         <>
           <span className="cdStatusChip">
@@ -486,7 +799,41 @@ const MiniAppHeader: FC<{
       )}
       {!preBuilt && <ToolShareChip dirName={dirName} />}
       <span className="cdToolHeader__spacer" />
-      {!preBuilt && (
+      {canEditText && (editing ? (
+        <>
+          <button
+            type="button"
+            className="cdBtnXs cdBtnXs--sm"
+            title="Undo the last text change (⌘Z)"
+            onClick={onUndo}
+            disabled={undoDepth === 0}
+          >
+            <MSymbol name="undo" size={15} />
+            Undo
+          </button>
+          <button
+            type="button"
+            className="cdBtnPrimary cdBtnPrimary--sm"
+            title="Leave edit mode"
+            onClick={onDone}
+          >
+            <MSymbol name="check" size={15} />
+            Done
+          </button>
+        </>
+      ) : (
+        <button
+          type="button"
+          className="cdBtnXs cdBtnXs--sm"
+          title="Click any text in the tool to change it"
+          onClick={onStartEdit}
+          disabled={isBuilding || installing}
+        >
+          <MSymbol name="edit" size={15} />
+          Edit text
+        </button>
+      ))}
+      {!preBuilt && !editing && (
         <button
           type="button"
           className="cdBtnXs cdBtnXs--sm"
@@ -534,6 +881,7 @@ const MiniAppHeader: FC<{
                 type="button"
                 className="cdMenu__item"
                 onClick={() => { setMenuOpen(false); onToggleSource(); }}
+                disabled={editing}
               >
                 <MSymbol name="code" size={16} />
                 {viewingSource ? 'View tool' : 'View source'}
@@ -553,6 +901,31 @@ const MiniAppHeader: FC<{
             </div>
           )}
         </div>
+      )}
+    </div>
+  );
+};
+
+/**
+ * The strip under the header while the user is editing text: what to do, then
+ * what just happened. The wording is all in `miniAppEditSession.ts`; this only
+ * lays it out. The whole message is also the tooltip, since the line is clamped.
+ */
+const EditBar: FC<{
+  bar: EditBarState;
+  onAskClaude: (ask: { oldText: string; newText: string }) => void;
+}> = ({ bar, onAskClaude }) => {
+  const { ask } = bar;
+  return (
+    <div className={`cdEditBar cdEditBar--${bar.tone}`} role="status" title={bar.detail ? `${bar.text} ${bar.detail}` : bar.text}>
+      <span className="cdEditBar__label">EDITING TEXT</span>
+      <span className="cdEditBar__dot" />
+      <span className="cdEditBar__text">{bar.text}</span>
+      {bar.detail && <span className="cdEditBar__detail">{bar.detail}</span>}
+      {ask && (
+        <button type="button" className="cdTextLink cdEditBar__ask" onClick={() => onAskClaude(ask)}>
+          Ask Claude
+        </button>
       )}
     </div>
   );
@@ -870,9 +1243,38 @@ const ContainerGate: FC<{ dirName: string; children: React.ReactNode }> = ({ dir
   return <>{children}</>;
 };
 
-const MiniAppContent = React.forwardRef<HTMLIFrameElement, { dirName: string; workspacePath: string; preBuilt?: boolean; nativeToolUrl?: string; appName?: string | null }>(({ dirName, workspacePath, preBuilt, nativeToolUrl, appName }, ref) => {
+const MiniAppContent = React.forwardRef<MiniAppContentHandle, {
+  dirName: string;
+  workspacePath: string;
+  preBuilt?: boolean;
+  nativeToolUrl?: string;
+  appName?: string | null;
+  /** Edit text (POC): the user is changing the tool's text in place. Off when omitted. */
+  editing?: boolean;
+  /** The frame has stamped elements; until then probes and commits get no reply. */
+  editReady?: boolean;
+  /** Everything the frame and main say about editing; see `EditEvent`. */
+  onEditEvent?: (evt: EditEvent) => void;
+}>(({ dirName, workspacePath, preBuilt, nativeToolUrl, appName, editing = false, editReady = false, onEditEvent }, ref) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  React.useImperativeHandle(ref, () => iframeRef.current!, []);
+  // Reads the iframe at call time, not at mount: the element is replaced when a
+  // load error clears, and a handle that captured the first one would post into
+  // a detached frame.
+  const postToFrame = useCallback((message: unknown): boolean => {
+    const frameWindow = iframeRef.current?.contentWindow;
+    if (!frameWindow) return false;
+    frameWindow.postMessage(message, '*');
+    return true;
+  }, []);
+  React.useImperativeHandle(ref, () => ({ postToFrame }), [postToFrame]);
+  // Frame messages arrive on a listener that outlives renders, so what it needs
+  // to know about edit mode is read through refs and the listener stays put.
+  const editingRef = useRef(editing);
+  editingRef.current = editing;
+  const editReadyRef = useRef(editReady);
+  editReadyRef.current = editReady;
+  const onEditEventRef = useRef(onEditEvent);
+  onEditEventRef.current = onEditEvent;
   const [loadError, setLoadError] = useState(false);
   const appDir = `${workspacePath}/.applications/${dirName}`;
   const { connect, executeCode } = useKernel(`miniapp::${dirName}`);
@@ -968,7 +1370,101 @@ const MiniAppContent = React.forwardRef<HTMLIFrameElement, { dirName: string; wo
       { type: 'init', workspacePath },
       '*',
     );
-  }, [workspacePath, dirName, nativeToolUrl]);
+    // A fresh document starts out of edit mode. When the tool was reloaded
+    // mid-session (a held build landing, a revert that lost its text node) put
+    // it back. The shim also asks, with `ready`, in case it installs after this.
+    if (editingRef.current) postToFrame({ type: EDIT_MSG.mode, on: true });
+  }, [workspacePath, dirName, nativeToolUrl, postToFrame]);
+
+  // Tell the frame when edit mode starts or stops. Changes only: a mount is not
+  // one, and the load handler above covers a document that arrives later.
+  const lastModeRef = useRef(editing);
+  useEffect(() => {
+    if (lastModeRef.current === editing) return;
+    lastModeRef.current = editing;
+    postToFrame({ type: EDIT_MSG.mode, on: editing });
+  }, [editing, postToFrame]);
+
+  /**
+   * One validated message from the edit shim in the frame. Probing and applying
+   * go to main; answers go back to the frame; what the user should see goes to
+   * the viewer. Messages that act on the tool are ignored unless edit mode is
+   * on: the frame's own code can post anything, and the host is the boundary.
+   */
+  const handleEditMessage = useCallback(async (msg: FrameEditMessage) => {
+    const emit = (evt: EditEvent) => onEditEventRef.current?.(evt);
+    switch (msg.type) {
+      case EDIT_MSG.ready:
+        if (editingRef.current) postToFrame({ type: EDIT_MSG.mode, on: true });
+        return;
+
+      case EDIT_MSG.state:
+        if (msg.on === false) emit({ kind: 'mode-off-acked' });
+        // Only a FINAL zero means the bundle has no stamps: the shim keeps
+        // watching for a while, because React may not have rendered yet.
+        else if (editingRef.current) emit({ kind: 'frame-state', stamped: msg.stamped, final: msg.final });
+        return;
+
+      case EDIT_MSG.probe: {
+        if (!editingRef.current || !editReadyRef.current) return;
+        let result: TextEditProbeResult;
+        try {
+          result = await window.miniAppsAPI.textEdit.probe(dirName, msg.target);
+        } catch {
+          // Unanswered, the frame would wait for ever. Answering "not editable"
+          // still lets the user type a request for Claude.
+          result = { editable: false, reason: 'invalid', message: "Couldn't check whether this text can be changed." };
+        }
+        postToFrame({ type: EDIT_MSG.probeResult, probeId: msg.probeId, editable: result.editable });
+        if (!result.editable) emit({ kind: 'probe-refused', reason: result.reason, message: result.message });
+        return;
+      }
+
+      case EDIT_MSG.commit: {
+        if (!editingRef.current || !editReadyRef.current) return;
+        // Counted before the first await, so Done (which waits for this count to
+        // reach zero) can never see the frame's `state` ahead of this save.
+        emit({ kind: 'inflight-change', delta: 1 });
+        try {
+          const { target, editId, newText } = msg;
+          let result: TextEditApplyResult;
+          try {
+            result = await window.miniAppsAPI.textEdit.apply(dirName, { ...target, editId, newText });
+          } catch {
+            // The frame is showing the new text and waiting to hear whether it
+            // stuck; a failure to ask is a "no", and it puts the old text back.
+            const undoDepth = await window.miniAppsAPI.textEdit.undoDepth(dirName).catch(() => 0);
+            result = { ok: false, editId, reason: 'invalid', message: "Couldn't save this change. Nothing was changed.", undoDepth };
+          }
+          postToFrame({
+            type: EDIT_MSG.applyResult,
+            editId,
+            ok: result.ok,
+            ...(result.ok ? { sameElementScope: result.sameElementScope } : {}),
+          });
+          if (result.ok) emit({ kind: 'applied', result, oldText: target.text, newText });
+          else emit({ kind: 'refused', result, oldText: target.text, newText });
+        } finally {
+          // After the result event, so the viewer knows the edit was applied
+          // (and the tool is dirty) by the time Done sees nothing in flight.
+          emit({ kind: 'inflight-change', delta: -1 });
+        }
+        return;
+      }
+
+      case EDIT_MSG.suggest:
+        if (editingRef.current) emit({ kind: 'suggest', oldText: msg.oldText, newText: msg.newText });
+        return;
+
+      case EDIT_MSG.shortcut:
+        if (editingRef.current) emit({ kind: 'shortcut', action: msg.action });
+        return;
+
+      case EDIT_MSG.reverted:
+        if (!msg.ok) emit({ kind: 'revert-failed' });
+        return;
+    }
+  }, [dirName, postToFrame]);
 
   const handleBridgeMessage = useCallback(
     async (event: MessageEvent) => {
@@ -1029,6 +1525,15 @@ const MiniAppContent = React.forwardRef<HTMLIFrameElement, { dirName: string; wo
           result: event.data.result,
           error: event.data.error,
         });
+        return;
+      }
+
+      // Edit-mode traffic from the injected edit shim. Notifications too, with
+      // no `id`, so they are claimed here, ahead of the dispatch below that
+      // would drop them. Validated first: the frame's code can post anything.
+      const editMessage = parseFrameEditMessage(event.data);
+      if (editMessage) {
+        void handleEditMessage(editMessage);
         return;
       }
 
@@ -1209,7 +1714,7 @@ const MiniAppContent = React.forwardRef<HTMLIFrameElement, { dirName: string; wo
         );
       }
     },
-    [connect, executeCode, composerRuntime, dirName, preBuilt, appName],
+    [connect, executeCode, composerRuntime, dirName, preBuilt, appName, handleEditMessage],
   );
 
   useEffect(() => {
