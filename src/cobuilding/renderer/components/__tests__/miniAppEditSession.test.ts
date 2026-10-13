@@ -22,6 +22,10 @@ import {
   needsLocalReload,
   parseFrameEditMessage,
   stampsAction,
+  editReadiness,
+  composeComposerText,
+  isTextEntryTarget,
+  hostShortcutFor,
 } from '../miniAppEditSession';
 import { EDIT_MSG, MAX_ANCESTOR_SRCS } from '../../../shared/miniAppTextEdit';
 import type {
@@ -511,5 +515,51 @@ describe('parseFrameEditMessage', () => {
         expect(parseFrameEditMessage({ type: EDIT_MSG.reverted, editId: 'e1', ok: 1 })).toBeNull();
       });
     });
+  });
+});
+
+describe('editReadiness', () => {
+  it('is ready on any stamped report, final or not, even after a rebuild', () => {
+    expect(editReadiness({ stamped: 1, final: false, alreadyRebuilt: false })).toBe('ready');
+    expect(editReadiness({ stamped: 9, final: true, alreadyRebuilt: true })).toBe('ready');
+  });
+  it('waits on a zero that is not final', () => {
+    expect(editReadiness({ stamped: 0, final: false, alreadyRebuilt: false })).toBe('wait');
+  });
+  it('rebuilds on the first final zero and gives up on the second', () => {
+    expect(editReadiness({ stamped: 0, final: true, alreadyRebuilt: false })).toBe('rebuild');
+    expect(editReadiness({ stamped: 0, final: true, alreadyRebuilt: true })).toBe('give-up');
+  });
+});
+
+describe('composeComposerText', () => {
+  it('appends after a blank line, trimming trailing whitespace', () => {
+    expect(composeComposerText('draft \n', 'P')).toBe('draft\n\nP');
+  });
+  it('uses just the prompt for an empty or blank draft', () => {
+    expect(composeComposerText('', 'P')).toBe('P');
+    expect(composeComposerText('  \n', 'P')).toBe('P');
+  });
+});
+
+describe('host shortcuts', () => {
+  const ev = (o: object) => ({ key: '', metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, ...o });
+  it('maps undo and done', () => {
+    expect(hostShortcutFor(ev({ key: 'z', metaKey: true }))).toBe('undo');
+    expect(hostShortcutFor(ev({ key: 'z', ctrlKey: true }))).toBe('undo');
+    expect(hostShortcutFor(ev({ key: 'Escape' }))).toBe('done');
+  });
+  it('ignores redo, plain z and other keys', () => {
+    expect(hostShortcutFor(ev({ key: 'z', metaKey: true, shiftKey: true }))).toBeNull();
+    expect(hostShortcutFor(ev({ key: 'z' }))).toBeNull();
+    expect(hostShortcutFor(ev({ key: 'a', metaKey: true }))).toBeNull();
+  });
+  it('treats fields as text entry', () => {
+    expect(isTextEntryTarget({ tagName: 'TEXTAREA' })).toBe(true);
+    expect(isTextEntryTarget({ tagName: 'input' })).toBe(true);
+    expect(isTextEntryTarget({ tagName: 'SELECT' })).toBe(true);
+    expect(isTextEntryTarget({ tagName: 'DIV', isContentEditable: true })).toBe(true);
+    expect(isTextEntryTarget({ tagName: 'DIV' })).toBe(false);
+    expect(isTextEntryTarget(null)).toBe(false);
   });
 });

@@ -291,3 +291,44 @@ export function needsLocalReload(o: { dirty: boolean; reloadNonce: number; heldN
 export function stampsAction(alreadyRebuilt: boolean): 'rebuild' | 'give-up' {
   return alreadyRebuilt ? 'give-up' : 'rebuild';
 }
+
+/**
+ * What a `state` report with edit mode on means for readiness. Edit mode starts
+ * NOT ready: until the frame has stamped at least one element, the viewer
+ * ignores its probes and commits, so no editor can open in a bundle that is
+ * about to be replaced. `ready` is the first report with stamps; a FINAL zero
+ * triggers the one rebuild (or the give-up on a second); anything else waits
+ * (the shim keeps watching, because React may not have rendered yet).
+ */
+export function editReadiness(o: {
+  stamped: number;
+  final: boolean;
+  alreadyRebuilt: boolean;
+}): 'ready' | 'rebuild' | 'give-up' | 'wait' {
+  if (o.stamped > 0) return 'ready';
+  if (o.final) return stampsAction(o.alreadyRebuilt);
+  return 'wait';
+}
+
+/**
+ * Text for the chat composer: the prompt appended to whatever the user has
+ * already typed there, after a blank line, instead of replacing it.
+ */
+export function composeComposerText(existing: string, prompt: string): string {
+  return existing.trim() === '' ? prompt : `${existing.replace(/\s+$/, '')}\n\n${prompt}`;
+}
+
+/** True for targets where typing belongs to the page's own field, so host shortcuts stand aside. */
+export function isTextEntryTarget(t: { tagName?: string; isContentEditable?: boolean } | null | undefined): boolean {
+  if (!t) return false;
+  if (t.isContentEditable) return true;
+  const tag = (t.tagName ?? '').toUpperCase();
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+}
+
+/** Host-level edit shortcut for a keydown: Cmd/Ctrl+Z (no Shift) undoes, Esc is Done. */
+export function hostShortcutFor(e: { key: string; metaKey: boolean; ctrlKey: boolean; shiftKey: boolean; altKey: boolean }): 'undo' | 'done' | null {
+  if (e.key === 'Escape') return 'done';
+  if ((e.key === 'z' || e.key === 'Z') && (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey) return 'undo';
+  return null;
+}

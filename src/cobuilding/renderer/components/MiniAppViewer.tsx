@@ -21,6 +21,10 @@ import {
   EDIT_HINT,
   EDIT_PREPARING,
   EDIT_UNTRACEABLE,
+  composeComposerText,
+  editReadiness,
+  hostShortcutFor,
+  isTextEntryTarget,
   askClaudePrompt,
   barForApply,
   barForPrepareFailure,
@@ -31,7 +35,6 @@ import {
   isDoneSettled,
   needsLocalReload,
   parseFrameEditMessage,
-  stampsAction,
 } from './miniAppEditSession';
 import type { EditBarState, FrameEditMessage } from './miniAppEditSession';
 
@@ -99,7 +102,7 @@ type EditEvent =
   | { kind: 'refused'; result: Extract<TextEditApplyResult, { ok: false }>; oldText: string; newText: string }
   | { kind: 'suggest'; oldText: string; newText: string }
   | { kind: 'shortcut'; action: 'undo' | 'done' }
-  | { kind: 'needs-stamps' }
+  | { kind: 'frame-state'; stamped: number; final: boolean }
   | { kind: 'revert-failed' }
   | { kind: 'mode-off-acked' }
   /** A save started (+1) or finished (-1). The viewer keeps the count: it survives the content remounting. */
@@ -347,6 +350,11 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
   const [localReload, setLocalReload] = useState(0);
   const [undoDepth, setUndoDepth] = useState(0);
   const [bar, setBar] = useState<EditBarState>(EDIT_HINT);
+  // Edit mode starts not ready: the frame's probes and commits are ignored until
+  // it reports stamped elements (see `editReadiness`).
+  const [editReady, setEditReady] = useState(false);
+  const editingRef = useRef(false);
+  editingRef.current = editing;
   const contentRef = useRef<MiniAppContentHandle>(null);
   // These are read by callbacks that outlive the render that made them (frame
   // events, the Done timer), so they are refs rather than state.
@@ -375,6 +383,7 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
     });
     dirtyRef.current = false;
     setEditing(false);
+    setEditReady(false);
     // Batched with the line above: one remount, onto the rebuilt bundle.
     if (reload) setLocalReload((n) => n + 1);
     setBar(EDIT_HINT);
@@ -419,7 +428,8 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
     stampsRebuildTriedRef.current = false;
     dirtyRef.current = false;
     setHeldNonce(reloadNonce ?? 0);
-    setBar(EDIT_HINT);
+    setEditReady(false);
+    setBar(EDIT_PREPARING);
     setEditing(true);
     // Edits from an earlier session are still undoable (main keeps the stack
     // until the app quits), so Undo must start out enabled when there are any.
@@ -446,34 +456,53 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
   // sending is the user's decision, so this path costs no model call by itself.
   const sendRequestToChat = useCallback((oldText: string, newText: string) => {
     if (!chatOpen) onToggleChat?.();
-    composerRuntime.setText(askClaudePrompt(oldText, newText));
+    // Appended to a draft, never over it.
+    composerRuntime.setText(composeComposerText(composerRuntime.getState().text ?? '', askClaudePrompt(oldText, newText)));
     setBar(barForSuggestion());
   }, [chatOpen, onToggleChat, composerRuntime]);
 
   // The frame reported, finally, that this bundle carries no source stamps: it
-  // was built with bare esbuild. One rebuild per session adds them.
+  // was built with bare esbuild. One rebuild per session adds them. The frame
+  // cannot have an editor open (it is not ready, so its probes get no answer),
+  // which is what makes the reload below safe.
   const prepareForEditing = useCallback(async () => {
-    if (stampsAction(stampsRebuildTriedRef.current) === 'give-up') {
-      setBar(EDIT_UNTRACEABLE);
-      return;
-    }
     stampsRebuildTriedRef.current = true;
     setBar(EDIT_PREPARING);
     try {
       const result = await window.miniAppsAPI.build(dirName);
       if (!result.ok) {
-        setBar(barForPrepareFailure(result.error));
+        if (editingRef.current) setBar(barForPrepareFailure(result.error));
         return;
       }
     } catch (err) {
-      setBar(barForPrepareFailure(err instanceof Error ? err.message : String(err)));
+      if (editingRef.current) setBar(barForPrepareFailure(err instanceof Error ? err.message : String(err)));
       return;
     }
+    // Edit mode ended while the build ran: Done already released the key.
+    if (!editingRef.current) return;
     // Main announces the build, but the iframe is held while editing, so the
-    // new bundle only arrives if the viewer asks for it.
-    setBar(EDIT_HINT);
+    // new bundle only arrives if the viewer asks for it. The held nonce adopts
+    // the live one so Done does not reload a second time.
+    setHeldNonce(reloadNonceRef.current);
     setLocalReload((n) => n + 1);
   }, [dirName]);
+
+  const handleFrameState = useCallback((stamped: number, final: boolean) => {
+    switch (editReadiness({ stamped, final, alreadyRebuilt: stampsRebuildTriedRef.current })) {
+      case 'ready':
+        setEditReady(true);
+        setBar((b) => (b === EDIT_PREPARING ? EDIT_HINT : b));
+        return;
+      case 'rebuild':
+        void prepareForEditing();
+        return;
+      case 'give-up':
+        setBar(EDIT_UNTRACEABLE);
+        return;
+      case 'wait':
+        return;
+    }
+  }, [prepareForEditing]);
 
   const handleEditEvent = useCallback((evt: EditEvent) => {
     switch (evt.kind) {
@@ -493,11 +522,13 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
         if (evt.action === 'undo') void undoLast();
         else finishEditing();
         return;
-      case 'needs-stamps':
-        void prepareForEditing();
+      case 'frame-state':
+        handleFrameState(evt.stamped, evt.final);
         return;
       case 'revert-failed':
         // The text node the edit lived in is gone; reload to show what is on disk.
+        // The fresh frame reports its own readiness.
+        setEditReady(false);
         setLocalReload((n) => n + 1);
         return;
       case 'mode-off-acked':
@@ -511,7 +542,23 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
         settleDone();
         return;
     }
-  }, [sendRequestToChat, undoLast, finishEditing, prepareForEditing, settleDone]);
+  }, [sendRequestToChat, undoLast, finishEditing, handleFrameState, settleDone]);
+
+  // Host-level shortcuts while editing (the frame has its own for when it has
+  // focus). Typing into the chat composer or any field is left alone.
+  useEffect(() => {
+    if (!editing) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (isTextEntryTarget(e.target as HTMLElement | null)) return;
+      const action = hostShortcutFor(e);
+      if (!action) return;
+      e.preventDefault();
+      if (action === 'undo') void undoLast();
+      else finishEditing();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [editing, undoLast, finishEditing]);
 
   const showBuildError = rebuildState.kind === 'error' && !viewingSource;
   const showAwaitingSource = rebuildState.kind === 'awaiting-source' && !viewingSource;
@@ -582,6 +629,7 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
                 workspacePath={workspacePath}
                 appName={appName}
                 editing={editing}
+                editReady={editReady}
                 onEditEvent={handleEditEvent}
               />
             )}
@@ -703,10 +751,24 @@ const MiniAppHeader: FC<{
           SETTING UP
         </span>
       ) : editing ? (
-        <span className="cdStatusChip">
-          <span className="cdDot cdDot--unread" />
-          EDITING
-        </span>
+        <>
+          <span className="cdStatusChip">
+            <span className="cdDot cdDot--unread" />
+            EDITING
+          </span>
+          {/* Edit mode must not hide the brake on work the tool is doing. */}
+          {working && (
+            <button
+              type="button"
+              className="cdBtnXs cdBtnXs--sm"
+              title="Stop what this tool is doing"
+              onClick={handleStop}
+            >
+              <MSymbol name="stop_circle" size={15} />
+              Stop
+            </button>
+          )}
+        </>
       ) : working ? (
         <>
           <span className="cdStatusChip">
@@ -1189,9 +1251,11 @@ const MiniAppContent = React.forwardRef<MiniAppContentHandle, {
   appName?: string | null;
   /** Edit text (POC): the user is changing the tool's text in place. Off when omitted. */
   editing?: boolean;
+  /** The frame has stamped elements; until then probes and commits get no reply. */
+  editReady?: boolean;
   /** Everything the frame and main say about editing; see `EditEvent`. */
   onEditEvent?: (evt: EditEvent) => void;
-}>(({ dirName, workspacePath, preBuilt, nativeToolUrl, appName, editing = false, onEditEvent }, ref) => {
+}>(({ dirName, workspacePath, preBuilt, nativeToolUrl, appName, editing = false, editReady = false, onEditEvent }, ref) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   // Reads the iframe at call time, not at mount: the element is replaced when a
   // load error clears, and a handle that captured the first one would post into
@@ -1207,6 +1271,8 @@ const MiniAppContent = React.forwardRef<MiniAppContentHandle, {
   // to know about edit mode is read through refs and the listener stays put.
   const editingRef = useRef(editing);
   editingRef.current = editing;
+  const editReadyRef = useRef(editReady);
+  editReadyRef.current = editReady;
   const onEditEventRef = useRef(onEditEvent);
   onEditEventRef.current = onEditEvent;
   const [loadError, setLoadError] = useState(false);
@@ -1336,11 +1402,11 @@ const MiniAppContent = React.forwardRef<MiniAppContentHandle, {
         if (msg.on === false) emit({ kind: 'mode-off-acked' });
         // Only a FINAL zero means the bundle has no stamps: the shim keeps
         // watching for a while, because React may not have rendered yet.
-        else if (msg.final && msg.stamped === 0 && editingRef.current) emit({ kind: 'needs-stamps' });
+        else if (editingRef.current) emit({ kind: 'frame-state', stamped: msg.stamped, final: msg.final });
         return;
 
       case EDIT_MSG.probe: {
-        if (!editingRef.current) return;
+        if (!editingRef.current || !editReadyRef.current) return;
         let result: TextEditProbeResult;
         try {
           result = await window.miniAppsAPI.textEdit.probe(dirName, msg.target);
@@ -1355,7 +1421,7 @@ const MiniAppContent = React.forwardRef<MiniAppContentHandle, {
       }
 
       case EDIT_MSG.commit: {
-        if (!editingRef.current) return;
+        if (!editingRef.current || !editReadyRef.current) return;
         // Counted before the first await, so Done (which waits for this count to
         // reach zero) can never see the frame's `state` ahead of this save.
         emit({ kind: 'inflight-change', delta: 1 });

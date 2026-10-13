@@ -27,7 +27,7 @@ import type {
   TextEditUndoResult,
 } from '../../../shared/miniAppTextEdit';
 
-const mockComposer = { setText: jest.fn(), send: jest.fn() };
+const mockComposer = { setText: jest.fn(), send: jest.fn(), getState: jest.fn(() => ({ text: '' })) };
 jest.mock('@assistant-ui/react', () => ({ useComposerRuntime: () => mockComposer }));
 jest.mock('../CodeView', () => ({ CodeView: () => null, languageForPath: () => null }));
 jest.mock('../notebook/NotebookViewer', () => ({ NotebookViewer: () => null }));
@@ -40,6 +40,7 @@ jest.mock('../share/ToolShareHeaderControls', () => ({
 }));
 
 import { MiniAppViewer } from '../MiniAppViewer';
+import { beginToolActivity, __resetToolStatusStore } from '../../toolStatusStore';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -174,7 +175,14 @@ const bar = () => container.querySelector('.cdEditBar');
 const barText = () => container.querySelector('.cdEditBar__text')?.textContent ?? null;
 const chip = () => container.querySelector('.cdStatusChip')?.textContent ?? null;
 
+/** Edit mode on, and the frame has reported stamped elements, so it is ready. */
 async function startEditing(): Promise<void> {
+  await startEditingNotReady();
+  await fromFrame(stateMsg({ stamped: 3, final: true }));
+}
+
+/** Edit mode on, nothing heard from the frame yet: not ready. */
+async function startEditingNotReady(): Promise<void> {
   await click(editText());
   expect(bar()).not.toBeNull();
 }
@@ -793,14 +801,17 @@ describe('Done', () => {
 
 describe('a tool built without source stamps', () => {
   it('is rebuilt once, quietly, and then reloaded', async () => {
-    await startEditing();
+    await startEditingNotReady();
     const before = iframe();
     await fromFrame(stateMsg({ stamped: 0, final: true }));
     expect(api.miniAppsAPI.build).toHaveBeenCalledTimes(1);
     expect(api.miniAppsAPI.build).toHaveBeenCalledWith('demo');
     expect(iframe()).not.toBe(before);
-    expect(barText()).toBe('Click any text to change it. Enter saves, Esc cancels.');
     expect(chip()).toBe('EDITING');
+    // The fresh frame decides readiness again.
+    expect(barText()).toBe('Preparing this tool for editing…');
+    await fromFrame(stateMsg({ stamped: 4, final: true }));
+    expect(barText()).toBe('Click any text to change it. Enter saves, Esc cancels.');
   });
 
   it('says it is preparing while the rebuild runs', async () => {
@@ -808,18 +819,19 @@ describe('a tool built without source stamps', () => {
     api.miniAppsAPI.build.mockImplementationOnce(() => new Promise<BuildResult>((resolve) => {
       finish = () => resolve({ ok: true, exitCode: 0 });
     }));
-    await startEditing();
+    await startEditingNotReady();
     await fromFrame(stateMsg({ stamped: 0, final: true }));
     expect(barText()).toBe('Preparing this tool for editing…');
     await act(async () => {
       finish();
     });
     await flush();
+    await fromFrame(stateMsg({ stamped: 4, final: true }));
     expect(barText()).toBe('Click any text to change it. Enter saves, Esc cancels.');
   });
 
   it('gives up with a plain explanation if the rebuilt tool still has no stamps', async () => {
-    await startEditing();
+    await startEditingNotReady();
     await fromFrame(stateMsg({ stamped: 0, final: true }));
     await fromFrame(stateMsg({ stamped: 0, final: true }));
     expect(api.miniAppsAPI.build).toHaveBeenCalledTimes(1);
@@ -828,20 +840,20 @@ describe('a tool built without source stamps', () => {
   });
 
   it('gets one more try in the next edit session', async () => {
-    await startEditing();
+    await startEditingNotReady();
     await fromFrame(stateMsg({ stamped: 0, final: true }));
     await fromFrame(stateMsg({ stamped: 0, final: true }));
     await click(doneButton());
     await fromFrame(stateMsg({ on: false }));
 
-    await startEditing();
+    await startEditingNotReady();
     await fromFrame(stateMsg({ stamped: 0, final: true }));
     expect(api.miniAppsAPI.build).toHaveBeenCalledTimes(2);
   });
 
   it('reports a failed rebuild with the first line of the build output and keeps the tool as it is', async () => {
     api.miniAppsAPI.build.mockResolvedValueOnce({ ok: false, error: '✘ [ERROR] Could not resolve "./Foo"\n  more', exitCode: 1 });
-    await startEditing();
+    await startEditingNotReady();
     const before = iframe();
     await fromFrame(stateMsg({ stamped: 0, final: true }));
     expect(iframe()).toBe(before);
@@ -852,17 +864,174 @@ describe('a tool built without source stamps', () => {
 
   it('reports a rebuild that threw', async () => {
     api.miniAppsAPI.build.mockRejectedValueOnce(new Error('spawn esbuild ENOENT'));
-    await startEditing();
+    await startEditingNotReady();
     await fromFrame(stateMsg({ stamped: 0, final: true }));
     expect(barText()).toBe("Couldn't prepare this tool for editing.");
     expect(container.querySelector('.cdEditBar__detail')?.textContent).toBe('spawn esbuild ENOENT');
   });
 
   it('is not triggered by a zero that is not final, or by a final count above zero', async () => {
-    await startEditing();
+    await startEditingNotReady();
     await fromFrame(stateMsg({ stamped: 0, final: false }));
     await fromFrame(stateMsg({ stamped: 5, final: true }));
     await fromFrame(stateMsg({ stamped: 0, final: true, on: false }));
     expect(api.miniAppsAPI.build).not.toHaveBeenCalled();
+  });
+});
+
+describe('readiness: nothing is editable until the frame has stamps', () => {
+  it('starts on the preparing bar and ignores probe and commit while not ready', async () => {
+    await startEditingNotReady();
+    expect(barText()).toBe('Preparing this tool for editing…');
+    await fromFrame(probeMsg());
+    await fromFrame(commitMsg());
+    expect(api.textEdit.probe).not.toHaveBeenCalled();
+    expect(api.textEdit.apply).not.toHaveBeenCalled();
+    expect(posted(EDIT_MSG.probeResult)).toEqual([]);
+    expect(posted(EDIT_MSG.applyResult)).toEqual([]);
+  });
+
+  it('answers probes once the first stamped report arrives, and not on a non-final zero', async () => {
+    await startEditingNotReady();
+    await fromFrame(stateMsg({ stamped: 0, final: false }));
+    await fromFrame(probeMsg('p1'));
+    expect(api.textEdit.probe).not.toHaveBeenCalled();
+    await fromFrame(stateMsg({ stamped: 2, final: false }));
+    expect(barText()).toBe('Click any text to change it. Enter saves, Esc cancels.');
+    await fromFrame(probeMsg('p2'));
+    expect(api.textEdit.probe).toHaveBeenCalledTimes(1);
+    expect(posted(EDIT_MSG.probeResult)).toEqual([{ type: EDIT_MSG.probeResult, probeId: 'p2', editable: true }]);
+  });
+
+  it('stays not ready after the give-up, so probes still get no reply', async () => {
+    await startEditingNotReady();
+    await fromFrame(stateMsg({ stamped: 0, final: true }));
+    await fromFrame(stateMsg({ stamped: 0, final: true }));
+    await fromFrame(probeMsg());
+    expect(api.textEdit.probe).not.toHaveBeenCalled();
+  });
+
+  it('does not reload a second time at Done after the prepare rebuild', async () => {
+    let finish: () => void = () => {};
+    api.miniAppsAPI.build.mockImplementationOnce(() => new Promise<BuildResult>((resolve) => {
+      finish = () => resolve({ ok: true, exitCode: 0 });
+    }));
+    await startEditingNotReady();
+    await fromFrame(stateMsg({ stamped: 0, final: true }));
+    await render({ reloadNonce: 1 }); // main announces the build; the held iframe stays put
+    await act(async () => {
+      finish();
+    });
+    await flush();
+    const reloaded = iframe();
+    await fromFrame(stateMsg({ stamped: 3, final: true }));
+    await click(doneButton());
+    await fromFrame(stateMsg({ on: false }));
+    expect(container.querySelector('.cdEditBar')).toBeNull();
+    expect(iframe()).toBe(reloaded);
+  });
+
+  it('does not reload if edit mode ended before the prepare build finished', async () => {
+    let finish: () => void = () => {};
+    api.miniAppsAPI.build.mockImplementationOnce(() => new Promise<BuildResult>((resolve) => {
+      finish = () => resolve({ ok: true, exitCode: 0 });
+    }));
+    await startEditingNotReady();
+    await fromFrame(stateMsg({ stamped: 0, final: true }));
+    await click(doneButton());
+    await fromFrame(stateMsg({ on: false }));
+    expect(container.querySelector('.cdEditBar')).toBeNull();
+    const after = iframe();
+    await act(async () => {
+      finish();
+    });
+    await flush();
+    expect(iframe()).toBe(after);
+  });
+});
+
+describe('Stop while editing', () => {
+  it('keeps the tool Stop control reachable next to the EDITING chip', async () => {
+    await startEditing();
+    expect(buttonLabelled('Stop')).toBeNull();
+    let end: () => void = () => {};
+    await act(async () => {
+      end = beginToolActivity('demo');
+      await new Promise((r) => setTimeout(r, 300));
+    });
+    expect(chip()).toBe('EDITING');
+    expect(buttonLabelled('Stop')).not.toBeNull();
+    await act(async () => {
+      end();
+    });
+    __resetToolStatusStore();
+  });
+});
+
+describe('suggestions append to a chat draft', () => {
+  const PROMPT = 'In this tool, change the text “Gene explorer” to “Gene browser”.';
+
+  it('keeps what the user already typed, after a blank line, and never sends', async () => {
+    mockComposer.getState.mockReturnValue({ text: 'my draft' });
+    await startEditing();
+    await fromFrame({ type: EDIT_MSG.suggest, oldText: 'Gene explorer', newText: 'Gene browser' });
+    expect(mockComposer.setText).toHaveBeenCalledWith(`my draft\n\n${PROMPT}`);
+    expect(mockComposer.send).not.toHaveBeenCalled();
+    mockComposer.getState.mockReturnValue({ text: '' });
+  });
+
+  it('fills an empty composer with just the prompt', async () => {
+    mockComposer.getState.mockReturnValue({ text: '  ' });
+    await startEditing();
+    await fromFrame({ type: EDIT_MSG.suggest, oldText: 'Gene explorer', newText: 'Gene browser' });
+    expect(mockComposer.setText).toHaveBeenCalledWith(PROMPT);
+    mockComposer.getState.mockReturnValue({ text: '' });
+  });
+});
+
+describe('host shortcuts while editing', () => {
+  const key = async (init: KeyboardEventInit, target: EventTarget = document.body) => {
+    await act(async () => {
+      target.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init }));
+    });
+    await flush();
+  };
+
+  it('undoes on Cmd+Z and Ctrl+Z, not on Shift+Cmd+Z', async () => {
+    await startEditing();
+    await key({ key: 'z', metaKey: true, shiftKey: true });
+    expect(api.textEdit.undo).not.toHaveBeenCalled();
+    await key({ key: 'z', metaKey: true });
+    expect(api.textEdit.undo).toHaveBeenCalledTimes(1);
+    await key({ key: 'z', ctrlKey: true });
+    expect(api.textEdit.undo).toHaveBeenCalledTimes(2);
+  });
+
+  it('finishes on Esc', async () => {
+    await startEditing();
+    await key({ key: 'Escape' });
+    expect(posted(EDIT_MSG.mode)).toContainEqual({ type: EDIT_MSG.mode, on: false });
+  });
+
+  it('stands aside for a textarea, an input and a contenteditable', async () => {
+    await startEditing();
+    const ta = document.createElement('textarea');
+    const input = document.createElement('input');
+    const ce = document.createElement('div');
+    ce.setAttribute('contenteditable', 'true');
+    Object.defineProperty(ce, 'isContentEditable', { value: true });
+    container.append(ta, input, ce);
+    for (const el of [ta, input, ce]) {
+      await key({ key: 'z', metaKey: true }, el);
+      await key({ key: 'Escape' }, el);
+    }
+    expect(api.textEdit.undo).not.toHaveBeenCalled();
+    expect(posted(EDIT_MSG.mode)).not.toContainEqual({ type: EDIT_MSG.mode, on: false });
+  });
+
+  it('does nothing when not editing', async () => {
+    await key({ key: 'z', metaKey: true });
+    await key({ key: 'Escape' });
+    expect(api.textEdit.undo).not.toHaveBeenCalled();
   });
 });
