@@ -43,6 +43,8 @@ function sampleApp(overrides: Partial<MiniAppEntry> = {}): MiniAppEntry {
     lastRun: null,
     preBuilt: false,
     archived: false,
+    pinned: false,
+    pinnedAt: null,
     apis: [],
     hasManifest: true,
     published: null,

@@ -29,6 +29,7 @@ import { ActivityPanel } from './components/command-desk/ActivityPanel';
 import { KnowledgePage } from './components/knowledge/KnowledgePage';
 import { ServersPage } from './components/servers/ServersPage';
 import { useHomeData } from './components/command-desk/useHomeData';
+import { railToolLists } from './components/command-desk/railTools';
 import { findShortcutAction } from './components/command-desk/findShortcut';
 import { resolveWorkspacePath } from './utils/resolveWorkspacePath';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
@@ -1014,22 +1015,26 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
   const activeTab = tabs.find((t) => t.id === activeTabId);
   const activeMiniAppDirName = activeTab?.kind === 'miniapp' && activeTab.data.kind === 'miniapp' ? activeTab.data.dirName : null;
 
-  const pinnedTools = useMemo(
-    () =>
-      [...activeApps]
-        .sort(
-          (a, b) =>
-            (b.lastOpened ? Date.parse(b.lastOpened) : 0) -
-            (a.lastOpened ? Date.parse(a.lastOpened) : 0),
-        )
-        .slice(0, 3)
-        .map((a) => ({
-          dirName: a.dirName,
-          name: a.name,
-          icon: a.icon,
-        })),
-    [activeApps],
-  );
+  // The rail's "Pinned tools" and "Recent tools" sections (railTools.ts).
+  const railTools = useMemo(() => railToolLists(apps), [apps]);
+  const pinnedDirNames = useMemo(() => new Set(railTools.pinned.map((t) => t.dirName)), [railTools]);
+
+  // Every pin and unpin goes through here, whichever control it came from, so
+  // the shell's app list (and with it the rail, the viewer's menu and the
+  // Tools page) is re-read once the manifest is written.
+  const handleSetToolPinned = useCallback(async (dirName: string, pinned: boolean) => {
+    try {
+      const result = await window.miniAppsAPI.setPinned(dirName, pinned);
+      if (!result.ok) console.error(`[Rail] Could not ${pinned ? 'pin' : 'unpin'} ${dirName}:`, result.error);
+    } catch (err) {
+      console.error(`[Rail] Could not ${pinned ? 'pin' : 'unpin'} ${dirName}:`, err);
+    }
+    refreshApps();
+  }, [refreshApps]);
+
+  // The tool on screen, for the rail's highlight; null on any other page.
+  const toolOnScreen =
+    sidebarTab === 'tools' && toolsViewMode === 'detail' ? activeMiniAppDirName : null;
 
   const workspaceName = workspace.directory_path.split('/').filter(Boolean).pop() ?? 'workspace';
 
@@ -1086,10 +1091,13 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
               chatCount={sessions.length}
               toolCount={activeApps.length}
               recents={sessions.slice(0, 5).map((s) => ({ id: s.id, title: s.title }))}
-              pinned={pinnedTools}
+              pinned={railTools.pinned}
+              recentTools={railTools.recent}
+              activeToolDirName={toolOnScreen}
               onNavigate={handleRailNavigate}
               onOpenChat={openChatById}
               onOpenTool={handleSelectApp}
+              onSetToolPinned={handleSetToolPinned}
             />
             <div className="cdMain">
           <div className="contentArea">
@@ -1169,6 +1177,7 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
                   }}
                   onSelectAppChat={handleSelectAppChat}
                   onNewAppChat={handleNewAppChat}
+                  onSetToolPinned={handleSetToolPinned}
                 />
               ) : toolsViewMode === 'paper-monitor' ? (
                 <div className="toolDetailContent">
@@ -1212,6 +1221,8 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
                   onSelectApp={handleSelectApp}
                   onSwitchToChat={() => setSidebarTab('chats')}
                   onAppsChanged={refreshApps}
+                  pinnedDirNames={pinnedDirNames}
+                  onSetPinned={handleSetToolPinned}
                 />
               )}
             </div>

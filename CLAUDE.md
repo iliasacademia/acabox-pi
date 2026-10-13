@@ -180,6 +180,38 @@ to `PATH`.
 
 ## Status (last updated 2026-10-13)
 
+**Tools can be pinned to the rail (2026-10-13).** Asked for as "make my Notes
+tool a separate app in the left menu". The recommendation, which the user
+took, was to keep it a tool (Claude can still change it, and Edit text still
+works on it) and give the rail real pinning.
+- **The old "Pinned tools" section was not pinning.** It showed the three most
+  recently opened tools, so Notes dropped out whenever three others were
+  opened. It is now labelled **Recent tools**, and leaves out pinned tools and
+  tools never opened. Chat "Recents" became **Recent chats** to match.
+- **Pinned tools** sits right under the menu, in pin order, with no cap.
+  Collapsed, the rail keeps pinned tools as icons. The tool on screen is
+  highlighted in its own row instead of Tools. Everything between the menu and
+  the footer now scrolls, so many pins cannot push Settings out of the window.
+- **The pin is `pinned` + `pinnedAt` in the tool's manifest**, beside
+  `archived`, written through `updateManifest` (`main/toolPin.ts`,
+  `miniApps:setPinned`). Archived tools keep their pin but are not shown.
+  Like `archived`, it travels in an exported zip.
+- **Three controls, one path:** the hover pin on a rail row, Pin/Unpin in a
+  tool's ⋯ menu, and the Tools page Settings panel. All go through
+  `handleSetToolPinned` in `index.tsx`, which re-reads the shell's app list. The
+  Tools page reads pin state from the shell (`pinnedDirNames`), not its own
+  list, which no rail or menu pin reloads. Which tools go where is pure:
+  `railToolLists` in `command-desk/railTools.ts`.
+- Verified: tsc clean; **2607/2607**; smoke exits 0. Live over CDP on
+  `npm start`: pin and unpin from a rail row's hover button (manifest written,
+  sections move), from the ⋯ menu (label flips), and from the Tools page;
+  collapsed icons; the highlight; IPC refuses `../etc` and a missing tool.
+  **Seen once, not reproduced:** about 12 s after launch the first rail pin was
+  followed by the page switching to Chats with a chat's menu open. Four later
+  pins with click logging recorded one click on the pin icon each and no
+  navigation.
+- Cost: zero model calls.
+
 **Edit a tool's text in place: built as a POC, tried by the user ("works great"), shipped in v0.1.30.** Asked for as "modify some
 things in the mini-apps UI myself, not via an agent — an Edit mode, like editing a Word doc".
 The design, tickets and measurements are in `docs/design/mini-app-text-edit-poc.md`.

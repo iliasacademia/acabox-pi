@@ -60,6 +60,8 @@ export interface ToolWorkspaceProps {
   onSelectAppChat: (dirName: string, sessionId: string) => void;
   /** Start (or reuse an unused) chat for this tool and show it. */
   onNewAppChat: (dirName: string) => void;
+  /** Pin a tool to the rail, or unpin it. */
+  onSetToolPinned: (dirName: string, pinned: boolean) => void;
 }
 
 export const ToolWorkspace: FC<ToolWorkspaceProps> = ({
@@ -76,6 +78,7 @@ export const ToolWorkspace: FC<ToolWorkspaceProps> = ({
   onExpandChat,
   onSelectAppChat,
   onNewAppChat,
+  onSetToolPinned,
 }) => {
   const statuses = useToolStatuses();
   const miniappTabs = tabs.filter((t) => t.kind === 'miniapp' && t.data.kind === 'miniapp');
@@ -196,6 +199,8 @@ export const ToolWorkspace: FC<ToolWorkspaceProps> = ({
                   preBuilt={preBuiltApps.has(dirName)}
                   appName={app?.name ?? dirName}
                   appIcon={app?.icon ?? null}
+                  pinned={app?.pinned === true}
+                  onSetPinned={(pinned) => onSetToolPinned(dirName, pinned)}
                   chatOpen={panelOpen}
                   onToggleChat={togglePanel}
                   onBack={onBack}

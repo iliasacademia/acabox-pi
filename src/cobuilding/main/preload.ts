@@ -185,6 +185,7 @@ contextBridge.exposeInMainWorld('miniAppsAPI', {
   touch: (dirName: string) => ipcRenderer.invoke('miniApps:touch', dirName),
   setApis: (dirName: string, apis: string[]) => ipcRenderer.invoke('miniApps:setApis', dirName, apis),
   setArchived: (dirName: string, archived: boolean) => ipcRenderer.invoke('miniApps:setArchived', dirName, archived),
+  setPinned: (dirName: string, pinned: boolean) => ipcRenderer.invoke('miniApps:setPinned', dirName, pinned),
   delete: (dirName: string) => ipcRenderer.invoke('miniApps:delete', dirName),
   build: (dirName: string): Promise<{ ok: boolean; outfile?: string; error?: string; exitCode: number }> =>
     ipcRenderer.invoke('miniApps:build', dirName),

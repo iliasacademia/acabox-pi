@@ -123,13 +123,16 @@ interface MiniAppViewerProps {
   appName?: string | null;
   /** Lucide icon name from the app's manifest. */
   appIcon?: string | null;
+  /** Whether the tool is pinned to the rail; with `onSetPinned`, the More menu offers Pin/Unpin. */
+  pinned?: boolean;
+  onSetPinned?: (pinned: boolean) => void;
   /** Whether the chat side panel is currently open (header toggle state). */
   chatOpen?: boolean;
   onToggleChat?: () => void;
   onBack?: () => void;
 }
 
-export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, reloadNonce, preBuilt, appName, appIcon, chatOpen, onToggleChat, onBack }) => {
+export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, reloadNonce, preBuilt, appName, appIcon, pinned, onSetPinned, chatOpen, onToggleChat, onBack }) => {
   const [viewingSource, setViewingSource] = useState(false);
   const [rebuildState, setRebuildState] = useState<RebuildState>({ kind: 'idle' });
   const appDir = `${workspacePath}/.applications/${dirName}`;
@@ -569,6 +572,8 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
         dirName={dirName}
         appName={appName ?? dirName}
         appIcon={appIcon ?? null}
+        pinned={pinned === true}
+        onSetPinned={onSetPinned}
         viewingSource={viewingSource}
         onToggleSource={() => setViewingSource((v) => !v)}
         onRebuild={handleRebuild}
@@ -644,6 +649,8 @@ const MiniAppHeader: FC<{
   dirName: string;
   appName: string;
   appIcon: string | null;
+  pinned: boolean;
+  onSetPinned?: (pinned: boolean) => void;
   viewingSource: boolean;
   onToggleSource: () => void;
   onRebuild: () => void;
@@ -661,7 +668,7 @@ const MiniAppHeader: FC<{
   onStartEdit: () => void;
   onUndo: () => void;
   onDone: () => void;
-}> = ({ dirName, appName, appIcon, viewingSource, onToggleSource, onRebuild, onShowInFinder, rebuildState, preBuilt, chatOpen, onToggleChat, nativeToolUrl, onBack, editing, undoDepth, onStartEdit, onUndo, onDone }) => {
+}> = ({ dirName, appName, appIcon, pinned, onSetPinned, viewingSource, onToggleSource, onRebuild, onShowInFinder, rebuildState, preBuilt, chatOpen, onToggleChat, nativeToolUrl, onBack, editing, undoDepth, onStartEdit, onUndo, onDone }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -877,6 +884,16 @@ const MiniAppHeader: FC<{
           </button>
           {menuOpen && (
             <div className="cdMenu">
+              {onSetPinned && (
+                <button
+                  type="button"
+                  className="cdMenu__item"
+                  onClick={() => { setMenuOpen(false); onSetPinned(!pinned); }}
+                >
+                  <MSymbol name={pinned ? 'keep_off' : 'keep'} size={16} />
+                  {pinned ? 'Unpin from sidebar' : 'Pin to sidebar'}
+                </button>
+              )}
               <button
                 type="button"
                 className="cdMenu__item"

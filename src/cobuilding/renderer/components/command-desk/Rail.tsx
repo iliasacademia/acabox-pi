@@ -7,6 +7,8 @@ import { toolStatusDotClass } from './toolStatusDisplay';
 import { useServerCounts } from '../../mcpServerStore';
 import { useHasUnreadChats } from '../../chatActivityStore';
 import { ChatMarkDot } from './ChatMarkDot';
+import type { RailTool } from './railTools';
+import type { ToolRuntimeStatus } from '../../toolStatusStore';
 
 // The Debug tab is a developer tool (hard reset, raw DB views); a packaged
 // user has no use for it and one click on Hard Reset wipes their workspace.
@@ -19,11 +21,6 @@ export interface RailRecentChat {
   title: string;
 }
 
-export interface RailPinnedTool {
-  dirName: string;
-  name: string;
-  icon: string | null;
-}
 
 const NAV_ITEMS: { tab: RailTab; label: string; icon: string }[] = [
   { tab: 'home', label: 'Home', icon: 'home' },
@@ -46,18 +43,27 @@ export function Rail({
   toolCount,
   recents,
   pinned,
+  recentTools,
+  activeToolDirName,
   onNavigate,
   onOpenChat,
   onOpenTool,
+  onSetToolPinned,
 }: {
   activeTab: RailTab | string;
   chatCount: number;
   toolCount: number;
   recents: RailRecentChat[];
-  pinned: RailPinnedTool[];
+  /** Tools the user pinned, in pin order (railTools.ts). */
+  pinned: RailTool[];
+  /** Recently opened tools that are not pinned (railTools.ts). */
+  recentTools: RailTool[];
+  /** The tool on screen, or null when no tool is. */
+  activeToolDirName: string | null;
   onNavigate: (tab: RailTab) => void;
   onOpenChat: (sessionId: string) => void;
   onOpenTool: (dirName: string) => void;
+  onSetToolPinned: (dirName: string, pinned: boolean) => void;
 }) {
   const [open, setOpen] = useState(() => localStorage.getItem(RAIL_OPEN_KEY) !== 'false');
   const toolStatuses = useToolStatuses();
@@ -70,6 +76,14 @@ export function Rail({
   // replacement for it: the count keeps meaning "how many chats you have" in
   // every state, and the dot is what catches the eye anyway (the user's pick).
   const hasUnreadChats = useHasUnreadChats();
+
+  // The tool on screen is highlighted in its own row, and Tools stops being
+  // highlighted, so a pinned tool reads as its own place in the menu. A tool
+  // the rail doesn't list leaves Tools highlighted as before. Collapsed, the
+  // rail lists pinned tools only.
+  const isPinned = (dirName: string | null) => !!dirName && pinned.some((t) => t.dirName === dirName);
+  const isListedExpanded = isPinned(activeToolDirName) || recentTools.some((t) => t.dirName === activeToolDirName);
+  const navActive = (tab: RailTab, toolListed: boolean) => activeTab === tab && !(tab === 'tools' && toolListed);
 
   const toggle = () => {
     setOpen((prev) => {
@@ -90,7 +104,7 @@ export function Rail({
         {NAV_ITEMS.map((item) => (
           <button
             key={item.tab}
-            className={`cdRail__bigIconBtn${activeTab === item.tab ? ' cdRail__bigIconBtn--active' : ''}`}
+            className={`cdRail__bigIconBtn${navActive(item.tab, isPinned(activeToolDirName)) ? ' cdRail__bigIconBtn--active' : ''}`}
             title={item.label}
             onClick={() => onNavigate(item.tab)}
           >
@@ -101,6 +115,25 @@ export function Rail({
             {item.tab === 'servers' && serverCounts.down > 0 && <span className="cdRail__badgeDot" />}
           </button>
         ))}
+        {pinned.length > 0 && (
+          <div className="cdRail__pinnedIcons">
+            {pinned.map((tool) => {
+              const Icon = resolveToolIcon(tool.icon);
+              const status = toolStatuses.get(tool.dirName);
+              return (
+                <button
+                  key={tool.dirName}
+                  className={`cdRail__bigIconBtn${tool.dirName === activeToolDirName ? ' cdRail__bigIconBtn--active' : ''}`}
+                  title={tool.name}
+                  onClick={() => onOpenTool(tool.dirName)}
+                >
+                  <Icon style={{ width: 20, height: 20 }} />
+                  {status && <span className={`cdDot ${toolStatusDotClass(status)} cdRail__iconDot`} />}
+                </button>
+              );
+            })}
+          </div>
+        )}
         <span className="cdRail__spacer" />
         {SHOW_DEBUG && (
           <button className="cdRail__bigIconBtn" title="Debug" onClick={() => onNavigate('debug')}>
@@ -131,7 +164,7 @@ export function Rail({
         {NAV_ITEMS.map((item) => (
           <button
             key={item.tab}
-            className={`cdRail__navItem${activeTab === item.tab ? ' cdRail__navItem--active' : ''}`}
+            className={`cdRail__navItem${navActive(item.tab, isListedExpanded) ? ' cdRail__navItem--active' : ''}`}
             onClick={() => onNavigate(item.tab)}
           >
             <MSymbol name={item.icon} size={18} />
@@ -156,51 +189,66 @@ export function Rail({
         ))}
       </nav>
 
-      {recents.length > 0 && (
-        <>
-          <div className="cdRail__sectionLabel">Recents</div>
-          <div className="cdRail__list">
-            {recents.map((chat) => (
-              <button key={chat.id} className="cdRail__row" onClick={() => onOpenChat(chat.id)}>
-                <MSymbol name="chat_bubble" size={16} />
-                <span className="cdRail__rowTitle">{chat.title}</span>
-                <ChatMarkDot sessionId={chat.id} className="cdRail__rowMark" />
-              </button>
-            ))}
-            <button className="cdRail__row cdRail__row--more" onClick={() => onNavigate('chats')}>
-              <MSymbol name="more_horiz" size={16} />
-              More
-            </button>
-          </div>
-        </>
-      )}
-
-      {pinned.length > 0 && (
-        <>
-          <div className="cdRail__sectionLabel">Pinned tools</div>
-          <div className="cdRail__list">
-            {pinned.map((tool) => {
-              const Icon = resolveToolIcon(tool.icon);
-              // Idle tools carry no dot at all — a dot here means the tool is
-              // busy or broken, not merely that it exists.
-              const status = toolStatuses.get(tool.dirName);
-              return (
-                <button
+      {/* Everything between the menu and the footer scrolls, so a long list of
+          pins can never push Settings off the bottom of the window. */}
+      <div className="cdRail__scroll">
+        {pinned.length > 0 && (
+          <>
+            <div className="cdRail__sectionLabel">Pinned tools</div>
+            <div className="cdRail__list">
+              {pinned.map((tool) => (
+                <RailToolRow
                   key={tool.dirName}
-                  className="cdRail__row"
-                  onClick={() => onOpenTool(tool.dirName)}
-                >
-                  <Icon style={{ width: 16, height: 16, color: 'var(--cd-text3)', flex: 'none' }} />
-                  <span className="cdRail__rowTitle">{tool.name}</span>
-                  {status && <span className={`cdDot ${toolStatusDotClass(status)}`} />}
-                </button>
-              );
-            })}
-          </div>
-        </>
-      )}
+                  tool={tool}
+                  pinned
+                  active={tool.dirName === activeToolDirName}
+                  status={toolStatuses.get(tool.dirName)}
+                  onOpen={() => onOpenTool(tool.dirName)}
+                  onTogglePin={() => onSetToolPinned(tool.dirName, false)}
+                />
+              ))}
+            </div>
+          </>
+        )}
 
-      <span className="cdRail__spacer" />
+        {recents.length > 0 && (
+          <>
+            <div className="cdRail__sectionLabel">Recent chats</div>
+            <div className="cdRail__list">
+              {recents.map((chat) => (
+                <button key={chat.id} className="cdRail__row" onClick={() => onOpenChat(chat.id)}>
+                  <MSymbol name="chat_bubble" size={16} />
+                  <span className="cdRail__rowTitle">{chat.title}</span>
+                  <ChatMarkDot sessionId={chat.id} className="cdRail__rowMark" />
+                </button>
+              ))}
+              <button className="cdRail__row cdRail__row--more" onClick={() => onNavigate('chats')}>
+                <MSymbol name="more_horiz" size={16} />
+                More
+              </button>
+            </div>
+          </>
+        )}
+
+        {recentTools.length > 0 && (
+          <>
+            <div className="cdRail__sectionLabel">Recent tools</div>
+            <div className="cdRail__list">
+              {recentTools.map((tool) => (
+                <RailToolRow
+                  key={tool.dirName}
+                  tool={tool}
+                  pinned={false}
+                  active={tool.dirName === activeToolDirName}
+                  status={toolStatuses.get(tool.dirName)}
+                  onOpen={() => onOpenTool(tool.dirName)}
+                  onTogglePin={() => onSetToolPinned(tool.dirName, true)}
+                />
+              ))}
+            </div>
+          </>
+        )}
+      </div>
 
       <div className="cdRail__footer">
         {SHOW_DEBUG && (
@@ -214,6 +262,49 @@ export function Rail({
           Settings
         </button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * One tool in the rail. The pin button sits beside the row, not inside it (a
+ * button cannot hold a button), and shows on hover or keyboard focus.
+ */
+function RailToolRow({
+  tool,
+  pinned,
+  active,
+  status,
+  onOpen,
+  onTogglePin,
+}: {
+  tool: RailTool;
+  pinned: boolean;
+  active: boolean;
+  status: ToolRuntimeStatus | undefined;
+  onOpen: () => void;
+  onTogglePin: () => void;
+}) {
+  const Icon = resolveToolIcon(tool.icon);
+  const action = pinned ? 'Unpin from sidebar' : 'Pin to sidebar';
+  return (
+    <div className="cdRail__rowWrap">
+      <button className={`cdRail__row${active ? ' cdRail__row--active' : ''}`} onClick={onOpen}>
+        <Icon style={{ width: 16, height: 16, color: active ? 'var(--cd-blue)' : 'var(--cd-text3)', flex: 'none' }} />
+        <span className="cdRail__rowTitle">{tool.name}</span>
+        {/* Idle tools carry no dot at all — a dot here means the tool is
+            busy or broken, not merely that it exists. */}
+        {status && <span className={`cdDot ${toolStatusDotClass(status)}`} />}
+      </button>
+      <button
+        type="button"
+        className="cdRail__rowAction"
+        title={action}
+        aria-label={`${action}: ${tool.name}`}
+        onClick={onTogglePin}
+      >
+        <MSymbol name={pinned ? 'keep_off' : 'keep'} size={15} />
+      </button>
     </div>
   );
 }

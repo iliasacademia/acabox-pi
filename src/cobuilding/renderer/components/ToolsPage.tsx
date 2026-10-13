@@ -14,6 +14,8 @@ import {
   ArchiveIcon,
   ArchiveRestoreIcon,
   DatabaseIcon,
+  PinIcon,
+  PinOffIcon,
 } from 'lucide-react';
 import { useAssistantRuntime, useComposerRuntime } from '@assistant-ui/react';
 import { FileViewer } from './FileViewer';
@@ -194,12 +196,21 @@ export function ToolsPage({
   onSelectApp,
   onSwitchToChat,
   onAppsChanged,
+  pinnedDirNames,
+  onSetPinned,
 }: {
   workspacePath: string;
   onSelectApp: (dirName: string, opts?: { preBuilt?: boolean }) => void;
   onSwitchToChat: () => void;
-  /** Notify the shell (rail badge, pinned list, home grid) that the app list changed. */
+  /** Notify the shell (rail badge, rail tool lists, home grid) that the app list changed. */
   onAppsChanged?: () => void;
+  /**
+   * Which tools are pinned to the rail. Read from the shell rather than this
+   * page's own list, because a pin made in the rail or a tool's menu does not
+   * reload this page; the shell re-reads after every pin, wherever it came from.
+   */
+  pinnedDirNames?: ReadonlySet<string>;
+  onSetPinned?: (dirName: string, pinned: boolean) => void;
 }) {
   const [apps, setApps] = useState<ToolsPageMiniApp[]>([]);
   const [loading, setLoading] = useState(true);
@@ -499,6 +510,20 @@ export function ToolsPage({
                           onOpenDialog={(dirName, appName) => setShareDialog({ dirName, appName })}
                         />
                         <div className="toolRow__settingsActions">
+                          {onSetPinned && (() => {
+                            const isPinned = pinnedDirNames?.has(app.dirName) === true;
+                            return (
+                              <button
+                                className="toolRow__deleteBtn"
+                                onClick={() => onSetPinned(app.dirName, !isPinned)}
+                              >
+                                {isPinned
+                                  ? <PinOffIcon style={{ width: 14, height: 14 }} />
+                                  : <PinIcon style={{ width: 14, height: 14 }} />}
+                                {isPinned ? 'Unpin from sidebar' : 'Pin to sidebar'}
+                              </button>
+                            );
+                          })()}
                           <button
                             className="toolRow__deleteBtn"
                             onClick={() => handleSetArchived(app, true)}

@@ -851,6 +851,10 @@ declare global {
     lastRun: string | null;
     preBuilt: boolean;
     archived: boolean;
+    /** Pinned to the rail's "Pinned tools" section by the user. */
+    pinned: boolean;
+    /** When it was pinned (ISO 8601), which orders the section; null when not pinned. */
+    pinnedAt: string | null;
     /** Configured API ids this tool may call through the proxy. */
     apis: string[];
     hasManifest: boolean;
@@ -975,6 +979,8 @@ declare global {
     list(): Promise<MiniAppEntry[]>;
     touch(dirName: string): Promise<{ ok: boolean; error?: string }>;
     setArchived(dirName: string, archived: boolean): Promise<{ ok: boolean; error?: string }>;
+    /** Pin a tool to the rail, or unpin it. */
+    setPinned(dirName: string, pinned: boolean): Promise<{ ok: boolean; error?: string }>;
     /** Grant/revoke the configured APIs this tool may call. */
     setApis(dirName: string, apis: string[]): Promise<{ ok: boolean; error?: string; apis?: string[] }>;
     /** Delete a tool's code, preserving its input/output under tool-data. */

@@ -14,6 +14,7 @@ import { updateManifest, readManifest } from './manifestIO';
 import { ensureToolDataLayoutForApp } from './toolDataMigration';
 import { APPLICATIONS_DIR, TOOL_DATA_DIR } from '../shared/paths';
 import { forgetBuildHealth } from './buildHealth';
+import { readToolPin, withToolPin } from './toolPin';
 import { isPublishedInfo } from './share/publishedRecord';
 import type { PublishedInfo } from '../shared/share';
 import {
@@ -457,7 +458,7 @@ export function registerFileHandlers(getAllowedPaths: () => string[], getMainWin
         .map(async (e) => {
           const dirName = e.name;
           const manifestPath = path.join(appsDir, dirName, 'manifest.json');
-          let manifest: { name?: unknown; description?: unknown; icon?: unknown; lastOpened?: unknown; lastRun?: unknown; preBuilt?: unknown; archived?: unknown; apis?: unknown; published?: unknown } | null = null;
+          let manifest: { name?: unknown; description?: unknown; icon?: unknown; lastOpened?: unknown; lastRun?: unknown; preBuilt?: unknown; archived?: unknown; pinned?: unknown; pinnedAt?: unknown; apis?: unknown; published?: unknown } | null = null;
           try {
             const raw = await fsPromises.readFile(manifestPath, 'utf-8');
             manifest = JSON.parse(raw);
@@ -474,6 +475,9 @@ export function registerFileHandlers(getAllowedPaths: () => string[], getMainWin
             lastRun: typeof manifest?.lastRun === 'string' ? manifest.lastRun : null,
             preBuilt: manifest?.preBuilt === true,
             archived: manifest?.archived === true,
+            // Pinned to the rail by the user; `pinnedAt` keeps pins in the
+            // order they were made (main/toolPin.ts).
+            ...readToolPin(manifest),
             // Which configured APIs this tool has been GRANTED. Travels with
             // the folder on export, deliberately: a shared tool should declare
             // what it wants to reach. It is not a capability — the grant only
@@ -589,6 +593,25 @@ export function registerFileHandlers(getAllowedPaths: () => string[], getMainWin
         }
         return manifest;
       });
+      return { ok: true };
+    } catch (e: any) {
+      return { ok: false, error: String(e?.message ?? e) };
+    }
+  });
+
+  // Pin or unpin a tool in the rail. Kept in the manifest beside `archived`;
+  // an archived tool keeps its pin but the rail shows active tools only.
+  ipcMain.handle('miniApps:setPinned', async (_event, dirName: string, pinned: boolean) => {
+    const allowedPaths = requireAllowedPaths(getAllowedPaths);
+    if (!isSafeDirName(dirName)) return { ok: false, error: 'Invalid app name' };
+    const appDir = path.join(allowedPaths[0], APPLICATIONS_DIR, dirName);
+    try {
+      await fsPromises.stat(appDir);
+    } catch {
+      return { ok: false, error: 'App not found' };
+    }
+    try {
+      await updateManifest(path.join(appDir, 'manifest.json'), (manifest) => withToolPin(manifest, pinned === true));
       return { ok: true };
     } catch (e: any) {
       return { ok: false, error: String(e?.message ?? e) };
