@@ -975,7 +975,8 @@ Key `<MiniAppContent>` with `contentKey(...)`, instead of the current
 
 | Event | Reaction |
 |---|---|
-| `needs-stamps` (first time) | Bar *"Preparing this tool for editing…"*; `await window.miniAppsAPI.build(dirName)`; then bump `localReload`. |
+| Entering edit mode | **Not ready** until a `state` report with `on:true` and `stamped > 0`. While not ready the bar reads *"Preparing this tool for editing…"* and the viewer **ignores `probe` and `commit`** (no reply), so the frame never opens an editor. *(Changed at review, 2026-10-13: the first version rebuilt and reloaded up to 4 s after Edit text, which could destroy an editor the user had already opened.)* |
+| `needs-stamps` (first time) | Still not ready; `await window.miniAppsAPI.build(dirName)`; on success adopt the current `reloadNonce` as held (so Done does not reload twice) and, if still editing, bump `localReload`. No editor can be open, so the reload loses nothing. |
 | `needs-stamps` (second time) | Error bar: *"This tool's text can't be traced to its code, so it can't be edited here."* |
 | `applied` / `refused` | Bar from `barForApply`; update `undoDepth`; set `dirty` on ok. |
 | `probe-refused` | Bar from `barForProbeRefusal`. |
