@@ -129,7 +129,7 @@ describe('resolveTextEdit: what it can edit', () => {
   it('matches either side of a conditional shown as a child', () => {
     const app = source('src/App.tsx', `export const A = ({ ok }) => <span>{ok ? "Ready" : 'Loading'}</span>;\n`);
     const span = stamp(app, '<span');
-    expect(expectOk(resolve([app], target('Ready', span, 'span')))).toMatchObject({ kind: 'jsx-expression', original: '"Ready"', sameElementScope: true });
+    expect(expectOk(resolve([app], target('Ready', span, 'span')))).toMatchObject({ kind: 'jsx-expression', original: '"Ready"', sameElementScope: false });
     expect(expectOk(resolve([app], target('Loading', span, 'span')))).toMatchObject({ kind: 'jsx-expression', original: "'Loading'" });
   });
 
@@ -247,18 +247,57 @@ describe('resolveTextEdit: duplicates', () => {
     expect(expectOk(resolve([app], target('Summary', stale, '', [stamp(app, '<div')]))).start).toBe(app.text.indexOf('Summary'));
   });
 
-  it('(b) falls back to the nearest enclosing element that holds exactly one candidate', () => {
+  it('does NOT fall back to an enclosing element: a tab label from a constant is ambiguous with a Card title below it', () => {
     const app = source('src/App.tsx', [
+      "const TABS = [{ id: 'overview', label: 'Overview' }, { id: 'genes', label: 'Gene table' }];",
       'export const A = () => (',
-      '  <main>',
-      '    <section id="a"><Panel title="Overview" /></section>',
-      '    <section id="b"><Panel title="Overview" /></section>',
-      '  </main>',
+      '  <div>',
+      '    <nav>{TABS.map(t => <button key={t.id}>{t.label}</button>)}</nav>',
+      '    <Card title="Gene table"><p>rows</p></Card>',
+      '  </div>',
       ');',
     ].join('\n'));
-    const r = expectOk(resolve([app], target('Overview', REUSABLE_STAMP, 'h2', ['.applications/_reusable/Panel.tsx:3:3', stamp(app, '<section', 2), stamp(app, '<main')])));
-    expect(r.start).toBe(app.text.lastIndexOf('"Overview"'));
-    expect(r.sameElementScope).toBe(false);
+    expectRefused(resolve([app], target('Gene table', stamp(app, '<button'), 'button', [stamp(app, '<nav'), stamp(app, '<div')])), 'ambiguous');
+  });
+
+  it('refuses a single candidate that is a host element\'s child elsewhere, when the clicked element is a different tool element', () => {
+    const app = source('src/App.tsx', [
+      'export const A = ({ label }) => (',
+      '  <div>',
+      '    <h2>Summary</h2>',
+      '    <p>{label}</p>',
+      '  </div>',
+      ');',
+    ].join('\n'));
+    expectRefused(resolve([app], target('Summary', stamp(app, '<p'), 'p', [stamp(app, '<div')])), 'ambiguous');
+    // Clicking the h2 itself is fine.
+    expectOk(resolve([app], target('Summary', stamp(app, '<h2'), 'h2')));
+    // A clicked element with no stamp in the tool leaves the single candidate allowed.
+    expectOk(resolve([app], target('Summary', REUSABLE_STAMP, 'h2')));
+    expectOk(resolve([app], target('Summary', null, 'h2')));
+  });
+
+  it('still allows a single attribute, object-property or component-children candidate for another clicked element', () => {
+    const attr = source('src/App.tsx', 'export const A = () => <div><Card title="Summary" /><p>x</p></div>;\n');
+    expect(expectOk(resolve([attr], target('Summary', stamp(attr, '<p'), 'p'))).kind).toBe('jsx-attribute');
+    const prop = source('src/App.tsx', 'const T = { label: "Summary" };\nexport const A = () => <div><p>{T.label}</p></div>;\n');
+    expect(expectOk(resolve([prop], target('Summary', stamp(prop, '<p'), 'p'))).kind).toBe('object-property');
+    const comp = source('src/App.tsx', 'export const A = () => <div><Card>Summary</Card><p>x</p></div>;\n');
+    expect(expectOk(resolve([comp], target('Summary', stamp(comp, '<p'), 'p'))).kind).toBe('jsx-text');
+  });
+
+  it('sameElementScope is true only for a whole-expression literal, not one branch of ?: || ?? &&', () => {
+    const scope = (body: string): boolean => {
+      const app = source('src/App.tsx', `export const A = ({ x, y }) => <p>${body}</p>;\n`);
+      return expectOk(resolve([app], target('Hi', stamp(app, '<p'), 'p'))).sameElementScope;
+    };
+    expect(scope('{"Hi"}')).toBe(true);
+    expect(scope('{("Hi" as string)!}')).toBe(true);
+    expect(scope('{"Hi" satisfies string}')).toBe(true);
+    expect(scope('{x ? "Hi" : y}')).toBe(false);
+    expect(scope('{x || "Hi"}')).toBe(false);
+    expect(scope('{x ?? "Hi"}')).toBe(false);
+    expect(scope('{x && "Hi"}')).toBe(false);
   });
 
   it('is ambiguous when nothing says which duplicate was clicked', () => {

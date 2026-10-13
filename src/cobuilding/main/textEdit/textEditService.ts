@@ -12,6 +12,7 @@
  * Everything that arrives over IPC is untrusted, so every input is validated
  * here, and every failure is a typed refusal with a plain message, never a throw.
  */
+import log from 'electron-log';
 import { randomUUID } from 'crypto';
 import type { Dirent } from 'fs';
 import * as fsp from 'fs/promises';
@@ -417,11 +418,11 @@ export function createTextEditService(deps: TextEditServiceDeps): TextEditServic
     } catch {
       return { ok: false, message: MESSAGES.writeFailed, undoDepth: depthOf(dirName) };
     }
+    // The source and the stack have moved back already, so the undo succeeded even if the tool does not
+    // rebuild; the host must still tell the frame to revert. The contract has no warning field, so log it.
     const built = await runBuild(dirName);
     if (!built.ok && built.reason !== 'source-missing') {
-      const why = firstErrorLine(built.error);
-      const message = `The text was put back in the tool's code, but the tool did not rebuild.${why === '' ? '' : ` ${why}`}`;
-      return { ok: false, message, undoDepth: depthOf(dirName) };
+      log.warn(`[TextEdit] ${dirName}: undo put the text back but the tool did not rebuild. ${firstErrorLine(built.error)}`);
     }
     return { ok: true, editId: entry.editId, location: entry.location, undoDepth: depthOf(dirName) };
   }

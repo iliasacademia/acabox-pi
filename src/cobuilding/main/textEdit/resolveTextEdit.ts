@@ -326,19 +326,18 @@ function elementsStartingOnLine(sf: ts.SourceFile, line: number): ts.JsxElement[
 }
 
 /**
- * The JSX element a stamp points at, when it points into this tool. The
- * element is the JsxElement or JsxSelfClosingElement whose `<` is at the
- * stamped line and column.
+ * The JSX element the CLICKED element's stamp points at, when it points into
+ * this tool. The element is the JsxElement or JsxSelfClosingElement whose `<`
+ * is at the stamped line and column.
  *
- * `expectedTag` is the clicked element's tag, known only for the clicked
- * element itself. A stamp is only ever put on a DOM element, whose tag is the
- * tag written in the JSX, so a different tag at the stamped position means the
+ * `expectedTag` is the clicked element's tag (empty when unknown, which skips
+ * the check). A stamp is only ever put on a DOM element, whose tag is the tag
+ * written in the JSX, so a different tag at the stamped position means the
  * stamp is stale (a text edit above it moved the lines) and must not be
- * trusted. Then, and when nothing starts at the position at all, the clicked
- * element still resolves if exactly one JsxElement of the right tag starts on
- * that line.
+ * trusted. Then, and when nothing starts at the position at all, the element
+ * still resolves if exactly one JsxElement of the right tag starts on that line.
  */
-function elementForStamp(stamp: string, input: ResolveInput, expectedTag: string | null): FoundElement | null {
+function elementForStamp(stamp: string, input: ResolveInput, expectedTag: string): FoundElement | null {
   const loc = parseSrcLoc(stamp);
   if (!loc) return null;
   const rel = stampPathInTool(loc, input.dirName);
@@ -354,9 +353,9 @@ function elementForStamp(stamp: string, input: ResolveInput, expectedTag: string
   const pos = lineStart + (loc.col - 1);
   if (pos < lineEnd) {
     const node = findAt(sf, pos, (n) => ((ts.isJsxElement(n) || ts.isJsxSelfClosingElement(n)) && n.getStart(sf) === pos ? n : undefined));
-    if (node && (expectedTag === null || jsxTagText(node, sf).toLowerCase() === expectedTag)) return { file, sf, node };
+    if (node && (expectedTag === '' || jsxTagText(node, sf).toLowerCase() === expectedTag)) return { file, sf, node };
   }
-  if (expectedTag !== null) {
+  if (expectedTag !== '') {
     const sameTag = elementsStartingOnLine(sf, loc.line - 1).filter((el) => jsxTagText(el, sf).toLowerCase() === expectedTag);
     if (sameTag.length === 1) return { file, sf, node: sameTag[0] };
   }
@@ -379,8 +378,28 @@ function isDirectChild(occ: Occurrence, element: FoundElement | null): boolean {
   return holder !== undefined;
 }
 
-function insideElement(occ: Occurrence, element: FoundElement): boolean {
-  return occ.file === element.file && occ.start >= element.node.getStart(element.sf) && occ.end <= element.node.end;
+/**
+ * True when the literal is the WHOLE content of its JsxExpression (looking
+ * through parentheses, `as`, `satisfies`, `!`), so it renders as that child
+ * whatever the row. One branch of `?:`, `||`, `??` or `&&` is not whole: the
+ * other branches may come from data, and sibling rows may differ.
+ */
+function isWholeExpression(occ: Occurrence): boolean {
+  let cur: ts.Node = occ.node;
+  for (;;) {
+    const parent: ts.Node | undefined = cur.parent;
+    if (!parent) return false;
+    if (ts.isParenthesizedExpression(parent) || ts.isNonNullExpression(parent)
+      || ((ts.isAsExpression(parent) || ts.isSatisfiesExpression(parent) || ts.isTypeAssertionExpression(parent)) && parent.expression === cur)) {
+      cur = parent;
+      continue;
+    }
+    return ts.isJsxExpression(parent) && parent.expression === cur;
+  }
+}
+
+function isHostContainer(occ: Occurrence): boolean {
+  return occ.container !== undefined && ts.isJsxElement(occ.container) && isHostTagName(occ.container.openingElement.tagName);
 }
 
 // ── Resolving ──────────────────────────────────────────────────────────
@@ -412,29 +431,23 @@ export function resolveTextEdit(input: ResolveInput): Resolution {
   }
 
   const tag = String(target.tagName ?? '').toLowerCase();
-  const clicked = target.elementSrc !== null ? elementForStamp(target.elementSrc, input, tag === '' ? null : tag) : null;
+  const clicked = target.elementSrc !== null ? elementForStamp(target.elementSrc, input, tag) : null;
 
-  // 2. Pick the candidate.
+  // 2. Pick the candidate. Rule (a) only: exactly one candidate that is a direct child of the
+  // clicked element's JSX. No containment rule: the right literal is often outside every DOM ancestor.
   let chosen: Occurrence | undefined;
   if (display.length === 1) {
     chosen = display[0];
+    // A child literal of a DOM element renders only inside that element's own node, so it cannot be
+    // the source of text clicked in a different element of this tool.
+    if ((chosen.kind === 'jsx-text' || chosen.kind === 'jsx-expression') && isHostContainer(chosen)
+      && clicked !== null && !isDirectChild(chosen, clicked)) {
+      return refuse('ambiguous', MESSAGES.ambiguous);
+    }
   } else {
     const direct = display.filter((o) => isDirectChild(o, clicked));
-    if (direct.length === 1) {
-      chosen = direct[0];
-    } else {
-      const stamps = [target.elementSrc, ...(target.ancestorSrcs ?? [])];
-      for (let i = 0; i < stamps.length && chosen === undefined; i++) {
-        const stamp = stamps[i];
-        if (stamp === null) continue;
-        const element = i === 0 ? clicked : elementForStamp(stamp, input, null);
-        if (!element) continue;
-        const inside = display.filter((o) => insideElement(o, element));
-        if (inside.length === 1) chosen = inside[0];
-        else if (inside.length > 1) return refuse('ambiguous', MESSAGES.ambiguous);
-      }
-      if (chosen === undefined) return refuse('ambiguous', MESSAGES.ambiguous);
-    }
+    if (direct.length !== 1) return refuse('ambiguous', MESSAGES.ambiguous);
+    chosen = direct[0];
   }
 
   // 4. A value in a data object is editable only if nothing else treats the text as code.
@@ -449,7 +462,7 @@ export function resolveTextEdit(input: ResolveInput): Resolution {
     start: chosen.start,
     end: chosen.end,
     kind: chosen.kind as TextEditKind,
-    sameElementScope: isDirectChild(chosen, clicked),
+    sameElementScope: isDirectChild(chosen, clicked) && (chosen.kind === 'jsx-text' || isWholeExpression(chosen)),
     original: chosen.file.text.slice(chosen.start, chosen.end),
   };
 }

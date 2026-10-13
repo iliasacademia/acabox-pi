@@ -11,7 +11,10 @@ import * as os from 'os';
 import * as path from 'path';
 import * as vm from 'vm';
 import type { TextEditApplyResult, TextEditTarget } from '../../../shared/miniAppTextEdit';
+import log from 'electron-log';
 import { createTextEditService } from '../textEditService';
+
+jest.mock('electron-log', () => ({ __esModule: true, default: { warn: jest.fn(), info: jest.fn(), error: jest.fn(), debug: jest.fn() } }));
 
 const DIR = 'demo';
 
@@ -353,16 +356,18 @@ describe('undo', () => {
     expect(build.calls).toHaveLength(1);
   });
 
-  it('says so when the rebuild after an undo fails, since the text was put back anyway', async () => {
+  it('still succeeds when the rebuild after an undo fails, since the text was put back, and logs the failure', async () => {
     const abs = makeTool({ 'App.tsx': APP });
     const build = createFakeBuild();
     const { service } = makeService(build);
-    expectOkResult(await service.apply(DIR, headingRequest('Protein explorer')));
+    const applied = expectOkResult(await service.apply(DIR, headingRequest('Protein explorer')));
     build.set(async () => ({ ok: false, error: '[ERROR] disk is full' }));
+    (log.warn as jest.Mock).mockClear();
     const result = await service.undo(DIR);
-    expect(result).toMatchObject({ ok: false, undoDepth: 0 });
-    expect((result as { message: string }).message).toMatch(/put back .* did not rebuild\. \[ERROR\] disk is full/);
+    expect(result).toEqual({ ok: true, editId: applied.editId, location: applied.location, undoDepth: 0 });
     expect(fs.readFileSync(abs('App.tsx'), 'utf8')).toBe(APP);
+    expect(log.warn).toHaveBeenCalledTimes(1);
+    expect((log.warn as jest.Mock).mock.calls[0][0]).toContain('disk is full');
   });
 
   it('keeps at most 50 edits', async () => {
