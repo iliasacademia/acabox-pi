@@ -85,6 +85,16 @@ import { EDIT_MSG, MAX_ANCESTOR_SRCS, MINI_APP_SRC_ATTR } from '../shared/miniAp
  */
 const FRAME_TEXT_LIMIT = 10000;
 
+/**
+ * The host's other limits on a probe/commit target (MiniAppViewer's
+ * `parseFrameEditMessage`): a stamp longer than this, or a tag name longer than
+ * FRAME_TAG_LIMIT, makes the host drop the message silently, so the frame
+ * applies them itself and the user gets a red flash instead of nothing.
+ */
+const FRAME_SRC_LIMIT = 400;
+const FRAME_TAG_LIMIT = 40;
+const FRAME_APPLIED_LIMIT = 100;
+
 export const MINI_APP_EDIT_SHIM = String.raw`(function () {
   'use strict';
   if (window.__acaboxEditShimInstalled) return 'already-installed';
@@ -94,6 +104,9 @@ export const MINI_APP_EDIT_SHIM = String.raw`(function () {
   var MSG = ${JSON.stringify(EDIT_MSG)};
   var MAX_ANCESTORS = ${MAX_ANCESTOR_SRCS};
   var TEXT_LIMIT = ${FRAME_TEXT_LIMIT};
+  var SRC_LIMIT = ${FRAME_SRC_LIMIT};
+  var TAG_LIMIT = ${FRAME_TAG_LIMIT};
+  var APPLIED_LIMIT = ${FRAME_APPLIED_LIMIT};
 
   var STAMP_WATCH_MS = 4000;
   var HOVER_THROTTLE_MS = 30;
@@ -130,6 +143,7 @@ export const MINI_APP_EDIT_SHIM = String.raw`(function () {
   var editor = null;         // { span, node, mode, target, oldText } while text is being edited
   var pendingProbe = null;   // { probeId, node, offset, target } waiting on the host
   var applied = {};          // editId -> { node, oldText, newText, src, siblings, pending }
+  var appliedOrder = [];     // editIds, oldest first, to cap the applied map
   var seq = 0;
   var stampWatch = null;     // { observer, timer } while waiting for stamps to appear
   var hoverTimer = null;
@@ -241,11 +255,12 @@ export const MINI_APP_EDIT_SHIM = String.raw`(function () {
   function buildTarget(node) {
     var parent = node.parentNode;
     var elementSrc = parent.getAttribute(SRC_ATTR) || null;
+    if (elementSrc && elementSrc.length > SRC_LIMIT) elementSrc = null;
     var ancestors = [];
     var prev = elementSrc;
     for (var el = parent.parentNode; el && el.nodeType === 1 && ancestors.length < MAX_ANCESTORS; el = el.parentNode) {
       var v = el.getAttribute(SRC_ATTR);
-      if (v && v !== prev) { ancestors.push(v); prev = v; }
+      if (v && v.length <= SRC_LIMIT && v !== prev) { ancestors.push(v); prev = v; }
     }
     return {
       text: node.nodeValue,
@@ -412,7 +427,10 @@ export const MINI_APP_EDIT_SHIM = String.raw`(function () {
     var editId = newId();
     var rec = { node: node, oldText: ed.oldText, newText: newText, src: ed.target.elementSrc, siblings: [], pending: null };
     applied[editId] = rec;
-    node.nodeValue = newText;
+    appliedOrder.push(editId);
+    while (appliedOrder.length > APPLIED_LIMIT) delete applied[appliedOrder.shift()];
+    // Only while still blank: a newer value React wrote meanwhile stays.
+    if (node.nodeValue === '') node.nodeValue = newText;
     post({ type: MSG.commit, editId: editId, target: ed.target, newText: newText });
     rec.pending = flash(parentEl, BLUE, true);
   }
@@ -441,6 +459,7 @@ export const MINI_APP_EDIT_SHIM = String.raw`(function () {
 
   function startProbe(hit) {
     var target = buildTarget(hit.node);
+    if (target.tagName.length > TAG_LIMIT) { flash(hit.node.parentNode, RED); return; }
     var probeId = newId();
     pendingProbe = { probeId: probeId, node: hit.node, offset: hit.offset, target: target };
     post({ type: MSG.probe, probeId: probeId, target: target });
@@ -452,6 +471,8 @@ export const MINI_APP_EDIT_SHIM = String.raw`(function () {
     pendingProbe = null;
     if (!on || (d.editable !== true && d.editable !== false)) return;
     if (!p.node.parentNode || !document.contains(p.node)) return;
+    // The text changed between the click and the answer: the answer is about other text.
+    if (p.node.nodeValue !== p.target.text) return;
     // Two answers cannot cross today; if they ever do, leave nothing half open.
     if (editor) finishEditor(false);
     openEditor(p.node, p.offset, p.target, d.editable === true ? 'direct' : 'suggest');
@@ -598,6 +619,13 @@ export const MINI_APP_EDIT_SHIM = String.raw`(function () {
     blurring = false;
   }
 
+  // The editor's span left the document without us (React re-rendered over it):
+  // what the user typed is not what they would be saving, so it is a cancel.
+  // Not applied when leaving edit mode, which still reports what was typed.
+  function dropStaleEditor() {
+    if (editor && !document.contains(editor.span)) finishEditor(true);
+  }
+
   function onKeyDown(event) {
     var key = event.key;
     if (editor) {
@@ -631,7 +659,10 @@ export const MINI_APP_EDIT_SHIM = String.raw`(function () {
   function onClick(event, isInside) {
     var startedInside = downInEditor;
     downInEditor = false;
-    if (!isInside) event.preventDefault();
+    // Always: inside the editor too, a click must not run the enclosing element's
+    // default action (<a href> navigation, <summary> toggle, <label> forwarding).
+    // The caret is placed on mousedown, which stays allowed there.
+    event.preventDefault();
     // A drag that began in the editor and ended outside it clicks on the common
     // ancestor, which is outside; it is still a click on the editor.
     if (isInside || startedInside) return;
@@ -644,6 +675,7 @@ export const MINI_APP_EDIT_SHIM = String.raw`(function () {
 
   function guard(event) {
     var type = event.type;
+    dropStaleEditor();
     var isInside = inEditor(event.target);
     if (type === 'focusin') {
       if (!isInside) {
@@ -662,6 +694,11 @@ export const MINI_APP_EDIT_SHIM = String.raw`(function () {
     if (type === 'paste') { onPaste(event, isInside); return; }
     if (type === 'mousedown' || type === 'pointerdown') downInEditor = isInside;
     if (type === 'click') { onClick(event, isInside); return; }
+    if (type === 'auxclick') { event.preventDefault(); return; }
+    // <button> and <summary> activate on the keyup of Space (and Enter), which would
+    // click outside the span and close the editor. Typing happens on keypress and
+    // beforeinput, so cancelling keyup costs nothing.
+    if (type === 'keyup') { if (isInside) event.preventDefault(); return; }
     if (!isInside && CANCELLED.indexOf(' ' + type + ' ') !== -1) event.preventDefault();
   }
 
@@ -685,7 +722,9 @@ export const MINI_APP_EDIT_SHIM = String.raw`(function () {
   // Leading and trailing: the first move is handled at once, and the last one
   // still lands after the pointer stops, so the box never rests on a neighbour.
   function onMouseMove(event) {
-    if (!on || editor) return;
+    if (!on) return;
+    dropStaleEditor();
+    if (editor) return;
     lastHover = { x: event.clientX, y: event.clientY, target: event.target };
     var wait = HOVER_THROTTLE_MS - (Date.now() - lastHoverAt);
     if (wait <= 0) { if (hoverTimer) window.clearTimeout(hoverTimer); runHover(); return; }
