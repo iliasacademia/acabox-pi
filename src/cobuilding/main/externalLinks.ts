@@ -29,6 +29,7 @@ import { app, shell, webFrameMain, type WebContents } from 'electron';
 import log from 'electron-log';
 import { isInternalUrl } from '../../shared/urlTargets';
 import { validateExternalUrl } from '../../utils/urlValidation';
+import { MINI_APP_EDIT_SHIM } from './miniAppEditShim';
 import { MINI_APP_LINK_SHIM } from './miniAppLinkShim';
 import { MINI_APP_SELECTION_SHIM } from './miniAppSelectionShim';
 
@@ -97,9 +98,16 @@ export function installExternalLinkGuards(): void {
         // Same injection point, same reason (see miniAppSelectionShim.ts):
         // a cross-origin frame's text selection is unreachable from the host.
         // Injected separately rather than concatenated so a failure in one
-        // shim cannot take the other down with it.
+        // shim cannot take the others down with it.
         frame.executeJavaScript(MINI_APP_SELECTION_SHIM).catch((err: Error) => {
           log.warn(`[ExternalLinks] Could not install mini-app selection shim in ${url}: ${err.message}`);
+        });
+        // Edit mode for a tool's text (see miniAppEditShim.ts): the same
+        // cross-origin constraint again, since only the frame can see its own
+        // text nodes. It does nothing until the host sends it `mode {on:true}`,
+        // so putting it in every tool frame costs a user who never edits nothing.
+        frame.executeJavaScript(MINI_APP_EDIT_SHIM).catch((err: Error) => {
+          log.warn(`[ExternalLinks] Could not install mini-app edit shim in ${url}: ${err.message}`);
         });
       },
     );
