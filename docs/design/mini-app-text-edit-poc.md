@@ -461,11 +461,20 @@ cursor transform transition opacity zIndex hovertemplate`.
        the JSX element at `elementSrc`: a JsxText child, or a literal inside a
        child JsxExpression, looking through child JsxFragments. If exactly one,
        take it.
-     - **(b) Nearest enclosing element.** For each stamp in `[elementSrc,
-       ...ancestorSrcs]` that resolves to a JSX element in the tool, find the
-       candidates inside that element's span `[getStart(), end)` in the same
-       file. Exactly one → take it. More than one → `ambiguous`. None → try the
-       next stamp.
+     - ~~**(b) Nearest enclosing element.**~~ **Withdrawn at integration
+       (2026-10-13). Do not implement it.** The rule took a duplicate because
+       it sat inside an ancestor element's source span. The page root's span
+       contains nearly everything, so the rule can pick the wrong literal. In
+       the demo tool, a tab labelled "Gene table" (from a `TABS` constant)
+       resolved to `<Card title="Gene table">` further down the page. The
+       right literal is often lexically outside every DOM ancestor: in a
+       const, in a data object, or in another component's JSX. No containment
+       test can prove which literal produced the text. Measured on the 21
+       production tools, the duplicates this rule existed for are almost all
+       CSS and Plotly config values, which are never clickable text, or
+       repeated data categories (`"Core"` ×11). For a category, refusing and
+       handing the change to Claude is right anyway: renaming it everywhere
+       is a code change.
      - **(c)** Otherwise → `ambiguous`, message *"This exact text appears in
        several places in the tool's code, so it isn't clear which one to
        change."*
@@ -473,7 +482,7 @@ cursor transform transition opacity zIndex hovertemplate`.
    with kind `jsx-text` or `jsx-expression`. This applies even when |D| = 1.
 4. If the chosen kind is `object-property` and any USAGE occurrence exists
    anywhere → `used-by-code`.
-5. **Finding the element for a stamp.** Use the JsxElement or
+5. **Finding the element for a stamp** (used by rule (a)). Use the JsxElement or
    JsxSelfClosingElement whose `getStart()` sits at `(line-1, col-1)`. If none
    matches and the stamp is `elementSrc`, accept the single JsxElement starting
    on that line whose tag name equals `target.tagName`.
