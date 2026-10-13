@@ -4,7 +4,9 @@
  *   - the agent's mcp__mini-apps__build_and_open_mini_application tool
  *
  * Centralising this here means there's one place that knows how to resolve
- * the bundled esbuild binary and shape the command line.
+ * the bundled esbuild binary and run it. The command line itself is
+ * `miniAppEsbuildArgs` (miniAppBuildArgs.ts), a pure function so a test can pin
+ * the exact argv.
  */
 
 import { app } from 'electron';
@@ -14,6 +16,8 @@ import { recordBuildResult } from './buildHealth';
 import log from 'electron-log';
 import { containerService } from './containerService';
 import { getNpmPrefix } from './nodeSetup';
+import { miniAppEsbuildArgs } from './miniAppBuildArgs';
+import { ensureJsxEditRuntime } from './miniAppJsxRuntime';
 
 export interface MiniAppBuildResult {
   ok: boolean;
@@ -134,19 +138,38 @@ export async function buildMiniApp(workspacePath: string, dirName: string): Prom
     return { ok: false, error: resolved.error, exitCode: 127 };
   }
 
+  // Every host element in the bundle is stamped with where it was written (the
+  // runtime behind that is miniAppJsxRuntime.ts), which is what lets "Edit
+  // text" trace a clicked word back to its source. The runtime is host code,
+  // so it lives in userData, where the agent's workspace edits cannot reach it.
+  // It is only an addition: if it cannot be written the tool still builds,
+  // just without stamps.
+  //
+  // It also needs React, and it can only reach the tool's through the `react`
+  // alias. esbuild resolves the runtime's `react/jsx-runtime` from the
+  // runtime's own directory in userData, not from the tool's, so a React that
+  // only the tool's own node_modules provides is out of its sight; NODE_PATH
+  // would not help, it is the same npm-site the alias is made from. Without the
+  // alias a stamped build can fail on an import the unstamped one resolves, and
+  // the error the agent is then shown names a host file outside the workspace.
+  // So no `react` alias, no stamps: that build is exactly what it always was.
+  const extraFlags = reactAliasFlags(getNpmPrefix());
+  let jsxRuntimeDir: string | null = null;
+  if (extraFlags.some((flag) => flag.startsWith('--alias:react='))) {
+    const wantedRuntimeDir = path.join(app.getPath('userData'), 'mini-app-jsx-runtime');
+    jsxRuntimeDir = ensureJsxEditRuntime(wantedRuntimeDir);
+    if (!jsxRuntimeDir) {
+      log.warn(`[MiniAppBuilder] ${dirName}: couldn't write the JSX stamp runtime to ${wantedRuntimeDir} — building without source stamps, so "Edit text" won't work on this build`);
+    }
+  } else {
+    log.info(`[MiniAppBuilder] ${dirName}: no React in the npm-site (no \`react\` alias) — building without source stamps, so "Edit text" won't work on this build`);
+  }
+
   // execLogged (not exec) so the invocation lands in the command log / Debug
   // tab. Build failures used to leave no trace anywhere.
   const result = await containerService.execLogged([
     resolved.bin,
-    entry,
-    '--bundle',
-    `--outfile=${outfile}`,
-    '--jsx=automatic',
-    '--loader:.tsx=tsx',
-    '--loader:.ts=ts',
-    '--format=iife',
-    `--alias:@reusable=${reusableAlias}`,
-    ...reactAliasFlags(getNpmPrefix()),
+    ...miniAppEsbuildArgs({ entry, outfile, reusableAlias, extraFlags, jsxRuntimeDir }),
   ], { source: 'build', appDirName: dirName });
 
   if (result.exitCode !== 0) {

@@ -8,8 +8,11 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
+// A real, per-suite tmp directory: nothing here may create directories at the filesystem root.
+const mockPaths = { userData: '' };
+
 jest.mock('electron', () => ({
-  app: { isPackaged: false, getAppPath: () => process.cwd(), getPath: () => '/nonexistent-userdata' },
+  app: { isPackaged: false, getAppPath: () => process.cwd(), getPath: () => mockPaths.userData },
 }));
 jest.mock('electron-log', () => ({
   __esModule: true,
@@ -25,6 +28,13 @@ jest.mock('../buildHealth', () => ({
 import { reactAliasFlags } from '../miniAppBuilder';
 
 describe('miniAppBuilder — React alias flags (T06)', () => {
+  beforeAll(() => {
+    mockPaths.userData = fs.mkdtempSync(path.join(os.tmpdir(), 'acabox-userdata-'));
+  });
+  afterAll(() => {
+    fs.rmSync(mockPaths.userData, { recursive: true, force: true });
+  });
+
   let prefix: string;
 
   beforeEach(() => {
