@@ -1,3 +1,4 @@
+import type { TextEditTarget, TextEditApplyRequest, TextEditProbeResult, TextEditApplyResult, TextEditUndoResult } from '../shared/miniAppTextEdit';
 import type { ChatAPI, Workspace, WorkspaceDirectory, ScheduledTask, ScheduledTaskRun, CreateTaskData, UpdateTaskData, CalendarGroup, CalendarEvent, EventFile, GroupFile, CreateGroupData, UpdateGroupData, CreateEventData, UpdateEventData, EventDependency, CreateDependencyData, UpdateDependencyData, CascadeUpdate, CalendarResource, CalendarResourceType, CreateResourceData, UpdateResourceData, MoveResourceData, ListResourcesOptions, WorkspaceFileEntry } from '../shared/types';
 
 interface DirEntry {
@@ -981,6 +982,13 @@ declare global {
     build(dirName: string): Promise<{ ok: boolean; outfile?: string; error?: string; exitCode: number; reason?: 'source-missing' }>;
     /** Fires when a build of this tool succeeded, whoever triggered it (Rebuild button or the agent's build tool). */
     onBuilt(callback: (evt: { dirName: string }) => void): () => void;
+    /** Edit mode for a tool's text (POC) — contracts in shared/miniAppTextEdit.ts. */
+    textEdit: {
+      probe(dirName: string, target: TextEditTarget): Promise<TextEditProbeResult>;
+      apply(dirName: string, req: TextEditApplyRequest): Promise<TextEditApplyResult>;
+      undo(dirName: string): Promise<TextEditUndoResult>;
+      undoDepth(dirName: string): Promise<number>;
+    };
   }
 
   interface ToolDataEntry {

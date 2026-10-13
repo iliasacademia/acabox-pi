@@ -1,5 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { FIND_IPC } from '../shared/findInPage';
+import { TEXT_EDIT_IPC } from '../shared/miniAppTextEdit';
+import type { TextEditTarget, TextEditApplyRequest } from '../shared/miniAppTextEdit';
 
 contextBridge.exposeInMainWorld('electronAPI', {
   on: (channel: string, callback: (...args: any[]) => void) => {
@@ -190,6 +192,13 @@ contextBridge.exposeInMainWorld('miniAppsAPI', {
     const handler = (_e: unknown, evt: { dirName: string }) => callback(evt);
     ipcRenderer.on('miniApps:built', handler);
     return () => ipcRenderer.removeListener('miniApps:built', handler);
+  },
+  // Edit mode for a tool's text (POC) — see shared/miniAppTextEdit.ts.
+  textEdit: {
+    probe: (dirName: string, target: TextEditTarget) => ipcRenderer.invoke(TEXT_EDIT_IPC.probe, dirName, target),
+    apply: (dirName: string, req: TextEditApplyRequest) => ipcRenderer.invoke(TEXT_EDIT_IPC.apply, dirName, req),
+    undo: (dirName: string) => ipcRenderer.invoke(TEXT_EDIT_IPC.undo, dirName),
+    undoDepth: (dirName: string) => ipcRenderer.invoke(TEXT_EDIT_IPC.undoDepth, dirName),
   },
 });
 
