@@ -990,12 +990,16 @@ describe('MINI_APP_EDIT_SHIM — finishing an edit', () => {
     expect(f.ofType(EDIT_MSG.commit)).toHaveLength(1);
   });
 
-  it('lets the browser act inside the editor and cancels it everywhere else', () => {
+  it('lets the browser place the caret inside the editor and cancels clicks everywhere', () => {
     const f = editing(APP);
     const { span } = openEditor(f, '#title');
-    for (const type of ['mousedown', 'mouseup', 'click', 'dblclick', 'contextmenu', 'dragstart']) {
+    for (const type of ['mousedown', 'mouseup', 'dblclick', 'contextmenu', 'dragstart']) {
       expect(f.fire(type, span).defaultPrevented).toBe(false);
     }
+    // A click is cancelled inside too: the enclosing element's default action
+    // (link, summary, label) must not run. The caret moves on mousedown.
+    expect(f.fire('click', span).defaultPrevented).toBe(true);
+    expect(f.fire('auxclick', span).defaultPrevented).toBe(true);
     // Typing keys are not cancelled either.
     expect(f.key(span, 'a').defaultPrevented).toBe(false);
     expect(f.key(span, 'z', { metaKey: true }).defaultPrevented).toBe(false);
@@ -1758,5 +1762,114 @@ describe('MINI_APP_EDIT_SHIM — robustness and the wire contract', () => {
       if (m.type === EDIT_MSG.reverted) { expect(m.editId).toMatch(EDIT_ID_PATTERN); expect(typeof m.ok).toBe('boolean'); }
     }
     expect(new Set(everything.map((m) => m.type))).toEqual(new Set(Object.keys(FIELDS)));
+  });
+});
+
+
+describe('MINI_APP_EDIT_SHIM — review fixes (T3 round 2)', () => {
+  const BTN = `<main data-acabox-src="b.tsx:1:1"><button id="b" data-acabox-src="b.tsx:2:1">Run it</button>
+    <a id="a" href="http://localhost:3000/other" data-acabox-src="b.tsx:3:1">A link</a>
+    <label id="lab" for="cb" data-acabox-src="b.tsx:4:1">Check me</label><input id="cb" type="checkbox"></main>`;
+
+  it('B1: keyup inside the editor is cancelled (button/summary activate on Space keyup)', () => {
+    const f = editing(BTN);
+    const { span } = openEditor(f, '#b');
+    f.clear();
+    expect(f.fire('keyup', span, { key: ' ' }).defaultPrevented).toBe(true);
+    expect(f.fire('keyup', span, { key: 'Enter' }).defaultPrevented).toBe(true);
+    expect(f.posted).toEqual([]);
+    expect(f.document.querySelector('[data-acabox-editor]')).toBe(span);
+  });
+
+  it('M1: a click in an editor inside a label does not forward to the control', () => {
+    const f = editing(BTN);
+    const { span } = openEditor(f, '#lab');
+    f.clear();
+    const ev = f.click(span);
+    expect(ev.defaultPrevented).toBe(true);
+    expect(q(f, '#cb').checked).toBe(false);
+    expect(f.posted).toEqual([]);
+    expect(f.document.querySelector('[data-acabox-editor]')).toBe(span);
+  });
+
+  it('M1: a click in an editor inside a link is cancelled', () => {
+    const f = editing(BTN);
+    const { span } = openEditor(f, '#a');
+    expect(f.click(span).defaultPrevented).toBe(true);
+  });
+
+  it('m1: a probe answer for text that has since changed opens no editor', () => {
+    const f = editing(APP);
+    const probe = probeFor(f, q(f, '#title'));
+    q(f, '#title').firstChild.nodeValue = 'Changed meanwhile';
+    f.host({ type: EDIT_MSG.probeResult, probeId: probe.probeId, editable: true });
+    expect(f.document.querySelector('[data-acabox-editor]')).toBeNull();
+    expect(q(f, '#title').firstChild.nodeValue).toBe('Changed meanwhile');
+  });
+
+  it('m2: a value the tool wrote into the blank node meanwhile is not overwritten on save', () => {
+    const f = editing(APP);
+    const { span } = openEditor(f, '#title');
+    const node = span.nextSibling;
+    expect(node.nodeValue).toBe('');
+    node.nodeValue = 'From React';
+    const c = commit(f, span, 'Typed');
+    expect(c.newText).toBe('Typed');
+    expect(node.nodeValue).toBe('From React');
+  });
+
+  it('m3: an editor React removed is treated as cancelled: no commit, Escape and hover work', () => {
+    const f = editing(APP);
+    const { span } = openEditor(f, '#title');
+    typeInto(span, 'Orphaned');
+    span.parentNode.removeChild(span);
+    f.clear();
+    f.key(f.document.body, 'Escape');
+    expect(f.ofType(EDIT_MSG.commit)).toEqual([]);
+    expect(f.ofType(EDIT_MSG.shortcut)).toEqual([{ type: EDIT_MSG.shortcut, action: 'done' }]);
+  });
+
+  it('m3: a click after the editor was removed posts no stale commit', () => {
+    const f = editing(APP);
+    const { span } = openEditor(f, '#title');
+    typeInto(span, 'Orphaned');
+    span.parentNode.removeChild(span);
+    f.clear();
+    f.click(q(f, '#sentence'));
+    expect(f.ofType(EDIT_MSG.commit)).toEqual([]);
+    expect(f.ofType(EDIT_MSG.probe)).toHaveLength(1);
+  });
+
+  it('m4: an over-long element stamp is sent as null and over-long ancestor stamps are skipped', () => {
+    const long = 'x'.repeat(401);
+    const f = editing(`<div data-acabox-src="ok.tsx:1:1"><div data-acabox-src="${long}"><p id="p" data-acabox-src="${long}">Hello</p></div></div>`);
+    const probe = probeFor(f, q(f, '#p'));
+    expect(probe.target.elementSrc).toBeNull();
+    expect(probe.target.ancestorSrcs).toEqual(['ok.tsx:1:1']);
+  });
+
+  it('m4: a tag name over 40 characters is not probed', () => {
+    const f = editing('<main><p id="p">x</p></main>');
+    const el = f.document.createElement('x'.repeat(41));
+    el.textContent = 'Hello there';
+    q(f, 'main').appendChild(el);
+    f.clear();
+    f.click(el);
+    expect(f.ofType(EDIT_MSG.probe)).toEqual([]);
+  });
+
+  it('nit: only the most recent 100 edits stay revertible', () => {
+    const f = editing(APP);
+    const ids: string[] = [];
+    for (let i = 0; i < 101; i++) {
+      const { span } = openEditor(f, '#title');
+      ids.push(commit(f, span, 'Title ' + i).editId);
+    }
+    f.clear();
+    f.host({ type: EDIT_MSG.revert, editId: ids[0] });
+    expect(f.ofType(EDIT_MSG.reverted)).toEqual([{ type: EDIT_MSG.reverted, editId: ids[0], ok: false }]);
+    f.clear();
+    f.host({ type: EDIT_MSG.revert, editId: ids[100] });
+    expect(f.ofType(EDIT_MSG.reverted)).toEqual([{ type: EDIT_MSG.reverted, editId: ids[100], ok: true }]);
   });
 });
