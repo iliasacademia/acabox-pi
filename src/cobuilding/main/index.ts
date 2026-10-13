@@ -13,6 +13,8 @@ import { registerFileHandlers, assertWithinAllowedDirs } from './fileHandlers';
 import { registerShareHandlers, recomputeAndBroadcastApp } from './share/shareHandlers';
 import { migratePlaintextShareToken } from './share/shareStore';
 import { setBuildSucceededHandler } from './miniAppBuilder';
+import { createTextEditService } from './textEdit/textEditService';
+import { registerTextEditIpc } from './textEdit/textEditIpc';
 import { installExternalLinkGuards } from './externalLinks';
 import { registerSystemStatsHandlers } from './systemStats';
 import { registerDictationHandlers, stopDictation } from './dictationService';
@@ -1212,6 +1214,16 @@ app.whenReady().then(async () => {
       const { buildMiniApp } = await import('./miniAppBuilder');
       return buildMiniApp(workspacePath, dirName);
     });
+    // Edit a tool's text in place (POC): rewrites one literal in the tool's source, then rebuilds.
+    registerTextEditIpc(ipcMain, createTextEditService({
+      getWorkspacePath: () => workspaceController.workspacePath,
+      build: async (dirName) => {
+        const workspacePath = workspaceController.workspacePath;
+        if (!workspacePath) return { ok: false, error: 'No active workspace' };
+        const { buildMiniApp } = await import('./miniAppBuilder');
+        return buildMiniApp(workspacePath, dirName);
+      },
+    }));
     registerWorkspaceHandlers(workspaceController, () => mainWindow, containerService);
     setupUpdaterIpcHandlers();
     setupUpdater(rebuildTrayMenu);
