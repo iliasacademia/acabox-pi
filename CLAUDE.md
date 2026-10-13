@@ -178,6 +178,71 @@ to `PATH`.
   SIGKILLs the suite mid-run and the tail prints `[exited with code 0]`
   from the pipe, which reads as a pass. Measured 2026-09-18.
 
+## Status (POC branch `poc/mini-app-text-edit`, 2026-10-13, not on main)
+
+**Edit a tool's text in place: POC, not merged or released.** Asked for as "modify some
+things in the mini-apps UI myself, not via an agent — an Edit mode, like editing a Word doc".
+The design, tickets and measurements are in `docs/design/mini-app-text-edit-poc.md`.
+- **How it works.**
+  - Every build stamps each JSX host element with `data-acabox-src="<file>:<line>:<col>"`.
+    The stamp comes from esbuild `--jsx-dev`, routed through a tiny runtime in userData:
+    `main/miniAppJsxRuntime.ts`, `main/miniAppBuildArgs.ts`.
+  - An injected frame shim (`main/miniAppEditShim.ts`) makes the running tool editable in
+    place.
+  - Main resolves the clicked text node to exactly one literal in the tool's own `src/`,
+    using TypeScript's parser (`main/textEdit/`). It rewrites the literal, re-parses to
+    verify, then rebuilds; a failed build reverts the edit.
+  - The viewer draws the edit bar and relays between the frame and main
+    (`MiniAppViewer.tsx`, `miniAppEditSession.ts`).
+  - Contracts are in `shared/miniAppTextEdit.ts`.
+  - **Zero model calls.** Text that cannot be edited directly (computed, also used as code,
+    or ambiguous) opens an amber editor. The change lands in the tool's chat composer as a
+    request, never sent.
+- **Measured, not assumed.**
+  - esbuild's jsxDEV column counts UTF-16 units and matches TS + 1.
+  - esbuild prints fileName relative to the cwd only when the typed path's case matches
+    the disk. This machine's userData is `Acabox` on disk but `acabox` in code, so stamps
+    are anchored at `/.applications/`.
+  - A `key` after a spread makes esbuild import `createElement` from the bare import
+    source, so the runtime dir also ships `index.js`.
+  - On the 20 production tools that build, stamping grew bundles by 0.13–0.81% and left
+    build time unchanged.
+  - All 381 rendered stamps there pointed at the right `<tag`.
+  - TypeScript bundled into main adds about 9.1 MB to the dev main bundle (23.6 MB).
+- **Review caught three things worth keeping.**
+  - A "nearest enclosing element" tie-break picked the wrong literal: the page root
+    contains everything. It was withdrawn, and duplicates are now refused unless one is a
+    direct JSX child of the clicked element.
+  - Rebuilding an unstamped tool 4 s into edit mode could wipe an open editor. Edit mode
+    is now not ready, and ignores clicks, until stamps are confirmed.
+  - In real Chromium, Space inside a `<button>` or `<summary>` fired the element's
+    keyboard click, and a click inside the editor ran the element's default action
+    (navigated a link, toggled `<details>`). keyup, click and auxclick defaults are now
+    cancelled in edit mode. **JSDOM cannot show either.**
+- **The shim keeps the original Text node attached, blanked, while editing.** It does not
+  detach it as the ticket said. A detached node makes React 19 throw `NotFoundError` on the
+  next sibling insert; this was measured.
+- **Verified.**
+  - tsc is clean.
+  - **2581/2583** tests pass. The two failures are the GitHub live suites, with the rate
+    limit at 0/60.
+  - Live over CDP on `npm start`, on the dev Text Edit Demo tool:
+    - heading, multi-line paragraph, card-title prop, `TABS` label, half of a sentence
+      split by `<strong>`, button label through `?:`, repeated rows (one edit updates all)
+    - Undo button and host ⌘Z
+    - Esc cancel; app clicks blocked
+    - amber hand-off for "Liver" (`=== "Liver"`), the clock and "Gene table" (two places)
+    - Done reloads onto the rebuilt bundle
+    - an unstamped bundle: "Preparing…", rebuild, ready in about 4.4 s
+    - typing Space in a button keeps the editor open
+- **Not done.**
+  - SVG/canvas text (Plotly titles), placeholders and tooltips.
+  - Template literals with `${}`.
+  - Formatting.
+  - Any lock against a concurrent agent edit.
+  - The packaged build.
+  - Lazy-loading TypeScript in main.
+
 ## Status (last updated 2026-10-12)
 
 **Sonnet 5.5 and Haiku 5.5: SDK 0.3.280 → 0.3.296, and Acabox's own small
