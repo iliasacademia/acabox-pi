@@ -85,5 +85,8 @@ still apply to every file it describes.
   archive committed, MIT licence, hygiene deletions (`.mcp.json`, the
   Claude review workflow, stale docs, `BUGS.md`,
   `OVERLAY_ARCHITECTURE_PLAN.md`), Acabox's CLAUDE.md moved to
-  `docs/history/`. Next: P0-09 (first cloud session), then P0-02…P0-08 in
-  parallel sessions; P0-10 on the mini before increment 0's acceptance.
+  `docs/history/`. Verified on the laptop: `npm ci` 30 s, `npx tsc --noEmit`
+  clean, `npm test` **2599/2599 across 163 suites** (8 tests and 1 suite
+  skipped by their own guards), 35 s. Next: P0-09 (first cloud session),
+  then P0-02…P0-08 in parallel sessions; P0-10 on the mini before
+  increment 0's acceptance.
