@@ -10,7 +10,7 @@ END=$(( $(date +%s) + 16*3600 ))
 echo "=== verifier start $(date), node $(node --version)"
 while [ "$(date +%s)" -lt "$END" ]; do
   git fetch -q --prune origin 2>/dev/null
-  for ref in $(git for-each-ref --format='%(refname:short)' refs/remotes/origin | grep -vE '^origin/(main|HEAD)$'); do
+  for ref in $(git for-each-ref --format='%(refname:short)' refs/remotes/origin | grep -vE '^origin(/main|/HEAD)?$'); do
     sha=$(git rev-parse "$ref"); br=${ref#origin/}; short=${sha:0:10}
     grep -q "^$sha " "$OPS/verified" && continue
     echo "=== $(date '+%H:%M') verifying $br @ $short"
