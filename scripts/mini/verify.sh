@@ -25,6 +25,10 @@ while [ "$(date +%s)" -lt "$END" ]; do
     status=FAILED; [ $tsc_ok = 1 ] && [ $test_rc = 0 ] && status=GREEN
     echo "$sha $status" >> "$OPS/verified"
     echo "tsc=$tsc_ok test_rc=$test_rc smoke_rc=$smoke_rc :: $summary"
+    # commit status so the cloud side (auto-fix / a routine) sees a pass or fail on this sha
+    gstate=failure; [ "$status" = GREEN ] && gstate=success
+    gdesc="tsc $([ $tsc_ok = 1 ] && echo ok || echo FAIL); $summary smoke rc=$smoke_rc"
+    gh api -X POST "repos/iliasacademia/acabox-pi/statuses/$sha" -f state="$gstate" -f context="mac-mini/verify" -f description="${gdesc:0:130}" >/dev/null 2>&1 && echo "status $gstate posted for $short"
   done
   # PRs: one comment per head sha with the stored result
   gh pr list --state open --json number,headRefName,headRefOid --jq '.[] | "\(.number) \(.headRefOid) \(.headRefName)"' 2>/dev/null | while read -r num hsha hbr; do
