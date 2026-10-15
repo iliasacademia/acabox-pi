@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { PRODUCT_DISPLAY_NAME } from '../../../shared/product';
 import { MSymbol } from './MSymbol';
 import { AcaboxMark } from './AcaboxMark';
 import { resolveToolIcon } from './toolIcon';
@@ -153,7 +154,7 @@ export function Rail({
         <div className="cdRail__logo">
           <AcaboxMark size={28} />
         </div>
-        <span className="cdRail__wordmark">ACABOX</span>
+        <span className="cdRail__wordmark">{PRODUCT_DISPLAY_NAME.toUpperCase()}</span>
         <span className="cdRail__spacer" />
         <button className="cdIconBtn" title="Collapse" onClick={toggle}>
           <MSymbol name="keyboard_double_arrow_left" size={18} />
