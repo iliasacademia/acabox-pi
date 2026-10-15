@@ -86,3 +86,6 @@ src/share-workers/web/public/viewer.css
 # turns the sign-in gate off wherever it is read.
 src/share-workers/**/.wrangler/
 src/share-workers/**/.dev.vars
+
+# Research reports about the private co-scientist repo stay local (plan, question 1)
+docs/design/pi-port-research-2026-10-15/co-scientist/
