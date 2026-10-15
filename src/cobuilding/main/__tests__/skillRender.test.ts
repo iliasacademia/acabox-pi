@@ -6,6 +6,7 @@
  * by hand while the design was written; measured facts that live only in a
  * document are facts a later "tidy up" commit deletes. They live here now.
  */
+import { itMac } from '../../../test/platform';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -105,7 +106,7 @@ describe('POSIX semantics the design rests on', () => {
 
   /** …and the accepted failure mode from section 3 of the design: WITH the
    *  slash, the delete resolves through the link and empties the store. */
-  it('rm -rf THROUGH a link (trailing separator) does empty the target', () => {
+  itMac('BSD rmdir follows a trailing-slash symlink; Linux returns ENOTDIR', 'rm -rf THROUGH a link (trailing separator) does empty the target', () => {
     const link = path.join(scratch, 'link');
     fs.symlinkSync(path.join(scratch, 'target'), link, 'dir');
     fs.rmSync(link + path.sep, { recursive: true, force: true });

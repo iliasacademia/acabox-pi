@@ -9,6 +9,7 @@
  * `electron-log`, so this file imports neither `jest.mock('electron', …)` nor
  * a temp userData dir.
  */
+import { itMac } from '../../../../test/platform';
 import { spawn, execFileSync, type ChildProcess } from 'child_process';
 import * as path from 'path';
 import { descendantsOf, pidSignatureOf, killTree } from '../processTree';
@@ -69,7 +70,7 @@ describe('descendantsOf / pidSignatureOf — unchanged behaviour, now shared', (
 });
 
 describe('killTree', () => {
-  it('kills a 3-level tree, including the grandchild', async () => {
+  itMac('cloud VM init (PID 1) does not reap, so killed grandchildren stay visible as zombies', 'kills a 3-level tree, including the grandchild', async () => {
     const child = spawn('/bin/sh', ['-c', '/bin/sh -c "sleep 45" & wait'], { stdio: 'ignore' });
     children.push(child);
     const top = child.pid!;

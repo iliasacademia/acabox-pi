@@ -5,6 +5,7 @@
  * the module is that it tells the truth about the OS, and a mocked `ps` would
  * only prove the mock agrees with itself.
  */
+import { itMac } from '../../../test/platform';
 import { spawn, execFileSync, type ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -219,7 +220,7 @@ describe('acknowledge', () => {
 });
 
 describe('cancel', () => {
-  it('kills a real process tree, including grandchildren', async () => {
+  itMac('cloud VM init (PID 1) does not reap, so killed grandchildren stay visible as zombies', 'kills a real process tree, including grandchildren', async () => {
     // sh -> sh -> sleep: the top pid is not the one doing the waiting, which is
     // exactly the case a naive single-pid kill would leave running.
     const child = spawn('/bin/sh', ['-c', '/bin/sh -c "sleep 45" & wait'], { stdio: 'ignore' });

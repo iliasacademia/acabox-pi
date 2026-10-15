@@ -31,10 +31,15 @@ still apply to every file it describes.
 
 - **Implementation runs in Claude Code cloud sessions** on this repo (Ubuntu
   24.04 x86_64, 16 GB). A ticket is done there when `npx tsc --noEmit` is
-  clean, the Linux-safe test run is green, and the PR names the mac checks it
-  needs. Until P0-09 lands, the Linux-safe run is plain `npm test` with these
-  expected platform failures: `dictationHelper`, `fileMonitorIntegration`, the
-  `sips` case in `attachmentAdapter`, and any suite gated on darwin.
+  clean, `npm run test:linux` is green, and the PR names the mac checks it
+  needs. `test:linux` is `npm test` plus a printed list of the tests skipped
+  by `describeMac` / `itMac` / `itNotRoot` (`src/test/platform.ts`; skipped on
+  non-darwin, run unchanged on a Mac). Tag a new mac-bound test the same way;
+  never delete or weaken it. Measured 2026-10-15: 41 tests in 7 files, from
+  GNU tar vs bsdtar flags in the skill importer, BSD `rmdir` through a
+  symlink, a non-reaping PID 1 in the VM, and root bypassing chmod.
+  `cloud-setup.sh` (apt libs + `npm ci`) takes about 51 s on the VM, well
+  inside the ~5 min snapshot budget.
 - **Acceptance runs on a Mac** (the office Mac mini, `ssh fors-mac-mini`, or
   the owner's laptop): `claude --teleport <session-id>` from a clean checkout,
   then `npm test` in full, the smoke tests and the live CDP checks of plan
@@ -82,6 +87,11 @@ still apply to every file it describes.
 
 ## Status
 
+- **2026-10-15 — P0-09 done (cloud).** `scripts/cloud-setup.sh`,
+  `src/test/platform.ts`, `npm run test:linux` (163 suites pass, 41 tagged
+  skips). The owner still sets the environment dialog values listed above;
+  set the setup-script field only after this PR merges. The plan's
+  `verify-pi-runtime.mjs` check is not run: P0-05 has not landed.
 - **2026-10-15 — P0-01 done.** Fork with full history, plan and scrubbed
   archive committed, MIT licence, hygiene deletions (`.mcp.json`, the
   Claude review workflow, stale docs, `BUGS.md`,

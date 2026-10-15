@@ -15,6 +15,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint 'src/**/*.{ts,tsx}'",
     "test": "ELECTRON_RUN_AS_NODE=1 electron node_modules/.bin/jest",
+    "test:linux": "node scripts/test-linux.js",
     "test:watch": "ELECTRON_RUN_AS_NODE=1 electron node_modules/.bin/jest --watch",
     "test:coverage": "ELECTRON_RUN_AS_NODE=1 electron node_modules/.bin/jest --coverage",
     "verify:find-in-page": "env -u ELECTRON_RUN_AS_NODE ./node_modules/electron/dist/Electron.app/Contents/MacOS/Electron scripts/verify-find-in-page.js",
