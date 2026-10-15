@@ -1,0 +1,9 @@
+{
+  "name": "acabox-pi",
+  "productName": "Acabox PI",
+  "bundleId": "com.electron.acabox-pi",
+  "userDataDir": "acabox-pi",
+  "releaseOwner": "iliasacademia",
+  "releaseRepo": "acabox-pi-releases",
+  "envPrefix": "ACABOX_PI"
+}

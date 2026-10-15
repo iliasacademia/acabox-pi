@@ -37,6 +37,7 @@ import { once } from 'events';
 import path from 'path';
 import os from 'os';
 import log from 'electron-log';
+import { BUNDLE_ID, PRODUCT_NAME } from '../shared/product';
 
 const execFileAsync = promisify(execFile);
 
@@ -195,7 +196,7 @@ async function validateNewBundle(newBundlePath: string, expectedVersion: string)
   }
 
   const bundleId = await readPlistValue(newBundlePath, 'CFBundleIdentifier');
-  const expectedId = 'com.electron.acabox';
+  const expectedId = BUNDLE_ID;
   if (bundleId !== expectedId) {
     throw new Error(`Unpacked update has bundle id "${bundleId}", expected "${expectedId}".`);
   }
@@ -244,7 +245,7 @@ if kill -0 "$PID" 2>/dev/null; then
 fi
 sleep 1
 
-BACKUP="\${TARGET}.acabox-old"
+BACKUP="\${TARGET}.${PRODUCT_NAME}-old"
 rm -rf "$BACKUP"
 if ! mv "$TARGET" "$BACKUP"; then
   echo "!!! could not move the old bundle aside — aborting, install left untouched"
@@ -286,10 +287,10 @@ export async function runSelfUpdate(req: SelfUpdateRequest): Promise<void> {
   // Mirrors the tag scripts/release.mjs creates (`v<version>`). If that naming
   // ever changes, this URL is the thing that breaks.
   const url = `https://github.com/${req.owner}/${req.repo}/releases/download/v${req.version}/${file.url}`;
-  const zipPath = path.join(os.tmpdir(), `acabox-update-${req.version}.zip`);
+  const zipPath = path.join(os.tmpdir(), `${PRODUCT_NAME}-update-${req.version}.zip`);
   // Stage beside the target so the final move is a rename on the same volume,
   // not a 180MB cross-device copy while the user waits at a dead app.
-  const stagingDir = path.join(path.dirname(bundlePath), `.acabox-update-${req.version}`);
+  const stagingDir = path.join(path.dirname(bundlePath), `.${PRODUCT_NAME}-update-${req.version}`);
 
   const cleanup = async () => {
     await fsp.rm(zipPath, { force: true }).catch(() => undefined);
@@ -314,7 +315,7 @@ export async function runSelfUpdate(req: SelfUpdateRequest): Promise<void> {
     await validateNewBundle(newBundlePath, req.version);
     log.info(`[SELF-UPDATE] Staged and validated ${newBundlePath}`);
 
-    const scriptPath = path.join(os.tmpdir(), `acabox-swap-${req.version}.sh`);
+    const scriptPath = path.join(os.tmpdir(), `${PRODUCT_NAME}-swap-${req.version}.sh`);
     await fsp.writeFile(scriptPath, buildSwapScript(), { mode: 0o755 });
     const swapLog = path.join(app.getPath('logs'), 'update-swap.log');
     await fsp.mkdir(path.dirname(swapLog), { recursive: true }).catch(() => undefined);

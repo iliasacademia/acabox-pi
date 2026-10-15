@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Build Acabox and publish a GitHub Release that electron-updater consumes.
+ * Build Acabox PI and publish a GitHub Release that electron-updater consumes.
  *
  * Pipeline:
  *   1. electron-forge make  (signs during packaging — see the note at step 1)
@@ -12,7 +12,7 @@
  *
  * The release REPO must be PUBLIC so the installed app can download update
  * assets without an embedded token. Create it once:
- *     gh repo create iliasacademia/acabox-releases --public
+ *     gh repo create iliasacademia/acabox-pi-releases --public
  *
  * Usage:
  *   npm run release                       # build + publish package.json version
@@ -39,16 +39,17 @@ const dryRun = hasFlag('--dry-run');
 const skipMake = hasFlag('--skip-make');
 
 const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
+const product = JSON.parse(readFileSync('product.json', 'utf8'));
 const version = pkg.version;
 const tag = `v${version}`;
 const repo =
-  getOpt('--repo') || process.env.ACABOX_RELEASE_REPO || 'iliasacademia/acabox-releases';
+  getOpt('--repo') || process.env[`${product.envPrefix}_RELEASE_REPO`] || `${product.releaseOwner}/${product.releaseRepo}`;
 const arch = process.arch; // arm64 | x64
 const platform = process.platform; // darwin | win32 | linux
 const channel = 'latest'; // electron-updater default channel → latest-mac.yml / latest.yml
 
 console.log(
-  `Acabox release ${tag}  →  ${repo}  (${platform}/${arch})${dryRun ? '  [dry run]' : ''}`,
+  `${product.productName} release ${tag}  →  ${repo}  (${platform}/${arch})${dryRun ? '  [dry run]' : ''}`,
 );
 
 function sh(cmd) {
@@ -141,7 +142,7 @@ const quoted = files.map((f) => `'${f}'`).join(' ');
 if (releaseExists) {
   sh(`gh release upload ${tag} ${quoted} --repo ${repo} --clobber`);
 } else {
-  sh(`gh release create ${tag} ${quoted} --repo ${repo} --title 'Acabox ${tag}' --notes 'Acabox ${version}'`);
+  sh(`gh release create ${tag} ${quoted} --repo ${repo} --title '${product.productName} ${tag}' --notes '${product.productName} ${version}'`);
 }
 
 console.log(dryRun ? '\nDry run complete — nothing was built or published.' : `\nPublished ${tag} to ${repo}.`);

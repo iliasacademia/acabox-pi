@@ -2,6 +2,7 @@ import { app, Tray, Menu, nativeImage } from 'electron';
 import * as path from 'path';
 import log from 'electron-log';
 import { isUpdaterConfigured, checkForUpdates } from './updater';
+import { PRODUCT_DISPLAY_NAME } from '../shared/product';
 
 // Cyan (#00BCD4) in BGRA byte order — tints the dock mark for dev builds so a
 // dev instance is distinguishable from a packaged one. Darker pixels (the blue
@@ -113,7 +114,7 @@ export function createTray() {
   }
 
   tray = new Tray(icon);
-  tray.setToolTip('Acabox');
+  tray.setToolTip(PRODUCT_DISPLAY_NAME);
   log.info('[TRAY] Tray created.');
 
   // Use click handlers instead of setContextMenu to work around Electron tray menu crash on macOS
