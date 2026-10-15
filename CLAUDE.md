@@ -41,10 +41,11 @@ still apply to every file it describes.
   section 10. Mac-only suites are tagged, never deleted or weakened.
 - **Cloud environment settings** (claude.ai environment dialog): network
   Custom with the default list kept plus `api.openai.com`, `auth.openai.com`,
-  `chatgpt.com`, `openrouter.ai`; variables `ANTHROPIC_API_KEY`,
-  `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `BASH_DEFAULT_TIMEOUT_MS=600000`,
-  `PI_SKIP_VERSION_CHECK=1`; setup script `bash scripts/cloud-setup.sh`
-  (written by P0-09). Secrets never go in the repo.
+  `chatgpt.com`, `openrouter.ai`; variables `BASH_DEFAULT_TIMEOUT_MS=600000`
+  and `PI_SKIP_VERSION_CHECK=1`; the provider keys as network secrets, never
+  as variables (variables are visible to anyone using the environment; see
+  plan P0-09); setup script `bash scripts/cloud-setup.sh`, set only after
+  P0-09's PR lands. Secrets never go in the repo.
 - **Mac mini rules** (plan P0-10): run jest with `--maxWorkers=2` (8 GB);
   quit Antigravity IDE before building; planned restarts go through
   `sudo fdesetup authrestart` (FileVault leaves a plainly rebooted mini

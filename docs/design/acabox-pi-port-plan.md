@@ -517,11 +517,11 @@ F18 and F19; the consequences:
   real list on Ubuntu rather than trusting this count.
 - **Memory.** 16 GB in the cloud clears every measured peak; the mini's 8 GB
   does not clear jest's default worker count, so it runs `--maxWorkers=2`.
-- **Secrets.** Provider keys are environment variables of the cloud
-  environment. The headless tests read them and push them through the
-  credential channel (D5), because D2 scrubs every provider variable from the
-  child's own env; nothing secret is committed, and the `agent.json` dev key
-  on the laptop stays there.
+- **Secrets.** Provider keys are network secrets of the cloud environment
+  (P0-09; environment variables are visible to anyone using the environment).
+  The headless tests push a credential through the channel of D5, because D2
+  scrubs every provider variable from the child's own env; nothing secret is
+  committed, and the `agent.json` dev key on the laptop stays there.
 
 ### Increment 0: bootstrap (no behaviour change)
 
@@ -627,9 +627,17 @@ exactly what fails for a platform reason; a failure for any other reason is a
 bug to fix. (c) Environment settings, entered by the owner in the claude.ai
 environment dialog and recorded in `CLAUDE.md`: network Custom with the
 default list kept plus `api.openai.com`, `auth.openai.com`, `chatgpt.com`,
-`openrouter.ai`; variables `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
-`OPENROUTER_API_KEY`, `BASH_DEFAULT_TIMEOUT_MS=600000`,
-`PI_SKIP_VERSION_CHECK=1`; setup script `bash scripts/cloud-setup.sh`.
+`openrouter.ai`; variables `BASH_DEFAULT_TIMEOUT_MS=600000` and
+`PI_SKIP_VERSION_CHECK=1` only (the dialog warns that variables are visible to
+anyone using the environment); the three provider keys as **network
+secrets**: bearer `Authorization` for `api.openai.com` and `openrouter.ai`,
+header `x-api-key` with no prefix for `api.anthropic.com`. Whether the proxy
+replaces the `Authorization`/`x-api-key` header PI sends with its own is
+measured in P1-17's headless provider tests; if it does not, the tests send
+a placeholder credential, and as a last resort the keys become variables on
+this personal environment. Setup script `bash scripts/cloud-setup.sh`, set
+only after this ticket's PR lands (an empty field until then; a failing
+script blocks every session from starting).
 Acceptance: the session reports `npx tsc --noEmit` clean, `npm run
 test:linux` green with the skipped list and its measured length, and `node
 scripts/verify-pi-runtime.mjs` (P0-05) passing on the VM. (Sonnet-sized.)
