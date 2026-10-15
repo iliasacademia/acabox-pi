@@ -40,6 +40,8 @@ while [ "$(date +%s)" -lt "$END" ]; do
 - npm test under Electron, 2 workers: $(grep -E '^Tests:|^Test Suites:' "$OPS/test.$hs.out" 2>/dev/null | tr '\n' ' ')
 - smoke test (\`npm start -- -- --smoke-test\`, launched from a background process over SSH): $(tail -1 "$OPS/smoke.$hs.out" 2>/dev/null | cut -c1-160)
 
+- commit: $hsha
+
 Result: **$st**. Not merged: the owner merges after reading this."
     [ -s "$OPS/tsc.$hs.out" ] && body="$body
 
@@ -54,6 +56,15 @@ failing suites:
 $(grep -E '^FAIL|●.*›' "$OPS/test.$hs.out" | head -20)
 \`\`\`"
     gh pr comment "$num" --body "$body" >/dev/null 2>&1 && echo "commented on #$num ($st)"
+    # closed loop: a FAILED head on an open PR fires the fix-up routine once per sha (cap 20 fires)
+    if [ "$st" = FAILED ] && [ -s "$OPS/routine.env" ]; then
+      . "$OPS/routine.env"
+      if [ "$(grep -c '^fire ' "$OPS/handled")" -lt 20 ] && [ -n "${ROUTINE_URL:-}" ] && [ -n "${ROUTINE_TOKEN:-}" ]; then
+        payload=$(printf '%s' "$body" | python3 -c 'import json,sys; print(json.dumps({"text": sys.stdin.read()}))')
+        code=$(curl -s -o "$OPS/fire.$hs.out" -w '%{http_code}' -X POST "$ROUTINE_URL" -H "Authorization: Bearer $ROUTINE_TOKEN" -H "anthropic-beta: experimental-cc-routine-2026-04-01" -H "anthropic-version: 2023-06-01" -H "Content-Type: application/json" -d "$payload")
+        echo "fire $hsha http $code" >> "$OPS/handled"; echo "fired fix-up routine for $hs: http $code"
+      fi
+    fi
     echo "$hsha $st" >> "$OPS/handled"
   done
   git checkout -q main 2>/dev/null
