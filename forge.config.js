@@ -114,6 +114,9 @@ const packagerConfig = {
   },
   extraResource: [
     'dist/agent-server.js',
+    // PI harness (plan D2): assembled by scripts/build-pi-bundle.mjs into build/pi,
+    // loaded by file URL from <Resources>/pi, never bundled by webpack.
+    'build/pi',
     // Mini-app bundler. MUST be the real binary under esbuild/bin, not the
     // node_modules/.bin symlink (extraResource copies it verbatim, and a
     // dangling symlink in Resources/ is worse than nothing). Lands at
