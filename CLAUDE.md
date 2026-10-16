@@ -73,13 +73,9 @@ still apply to every file it describes.
 
 ## Hazards
 
-- **Until P0-02 lands, `npm run fresh-install` and `npm run
-  db:cobuilding:reset` delete the ORIGINAL Acabox install and database.** Do
-  not run them on a machine that has Acabox.
-- **Until P0-03 lands, the dev app still identifies as Acabox**: `npm start`
-  uses Acabox's bundle id and writes to
-  `~/Library/Application Support/acabox/development`, the same dev profile as
-  Acabox. Prefer `npm test` and the smoke test on a machine that has Acabox.
+- `fresh-install` and `db:cobuilding:reset` now target Acabox PI names only
+  (P0-02), and the dev app uses its own userData `acabox-pi/development`
+  (P0-03). The Mac checks for that are still open (see Status).
 - `.mcp.json` was deleted in P0-01 (a dev token for scripts that no longer
   exist). Do not recreate it.
 - PI is ESM-only and the agent server is a webpack CJS bundle; see plan D2 and
@@ -87,6 +83,17 @@ still apply to every file it describes.
 
 ## Status
 
+- **2026-10-16 — Increment 0 built in the cloud (P0-02…P0-08), awaiting
+  Mac acceptance.** `product.json` is the single identity source
+  (`shared/product.ts`); `build/pi` is assembled and probed by
+  `scripts/build-pi-bundle.mjs` (15 MB; `pi 1.2.0 ok` under Electron's Node;
+  runs in `prestart`/`prepackage`/`premake`); `resources/bin` ships arm64
+  `rg` 15.1.0 and `fd` 10.3.0, prepended to the agent server PATH on
+  darwin/arm64; `release.mjs` hyphenates artifacts; the 12-tool surface is in
+  `agent-server/__tests__/toolSurface.fixture.json`
+  (`scripts/record-tool-surface.mjs`). Still open: create the public, seeded
+  repo `iliasacademia/acabox-pi-releases` (the cloud session's GitHub token
+  could not create repositories), and the Mac checks listed in the PR.
 - **2026-10-15 — P0-09 done (cloud).** `scripts/cloud-setup.sh`,
   `src/test/platform.ts`, `npm run test:linux` (163 suites pass, 41 tagged
   skips). The owner still sets the environment dialog values listed above;
