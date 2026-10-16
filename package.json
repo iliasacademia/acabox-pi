@@ -2,7 +2,7 @@
   "name": "acabox-pi",
   "productName": "Acabox",
   "private": true,
-  "version": "0.1.31",
+  "version": "0.2.0",
   "description": "Acabox desktop app — local-file-aware research assistant with mini-app hosting.",
   "main": ".webpack/main",
   "scripts": {
