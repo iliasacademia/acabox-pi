@@ -19,6 +19,7 @@
  *   node scripts/release.mjs --dry-run    # print the plan, change nothing
  *   node scripts/release.mjs --skip-make  # reuse an existing out/make build
  *   node scripts/release.mjs --repo owner/name
+ *   node scripts/release.mjs --dry-run --platform darwin --arch arm64   # plan for a Mac build from any host
  *
  * Bump "version" in package.json before releasing — electron-updater compares
  * the release version against the installed app's version. Tags must be unique.
@@ -27,6 +28,9 @@
 import { execFileSync, execSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
+import { createRequire } from 'node:module';
+
+const { hyphenateDir, expectedDarwinNames } = createRequire(import.meta.url)('./release-names.js');
 
 const args = process.argv.slice(2);
 const hasFlag = (f) => args.includes(f);
@@ -44,8 +48,8 @@ const version = pkg.version;
 const tag = `v${version}`;
 const repo =
   getOpt('--repo') || process.env[`${product.envPrefix}_RELEASE_REPO`] || `${product.releaseOwner}/${product.releaseRepo}`;
-const arch = process.arch; // arm64 | x64
-const platform = process.platform; // darwin | win32 | linux
+const arch = getOpt('--arch') || process.arch; // arm64 | x64
+const platform = getOpt('--platform') || process.platform; // darwin | win32 | linux
 const channel = 'latest'; // electron-updater default channel → latest-mac.yml / latest.yml
 
 console.log(
@@ -84,6 +88,15 @@ if (!skipMake) {
   sh('npm run make');
 }
 
+// 2a. Hyphenate artifact names ------------------------------------------------
+// Forge names files after productName ("Acabox PI-darwin-arm64-<v>.zip") and
+// GitHub rewrites spaces in asset names, which would break the url in
+// latest-mac.yml. Rename before the manifest is generated.
+const payloadDirForNames = platform === 'darwin' ? path.join('out/make', 'zip', platform, arch) : path.join('out/make', 'squirrel.windows', arch);
+for (const dir of ['out/make', payloadDirForNames]) {
+  for (const [from, to] of hyphenateDir(dir, { dryRun })) console.log(`rename ${path.join(dir, from)} -> ${to}`);
+}
+
 // 2. Generate electron-updater metadata (reuses the existing generator) ------
 {
   const cmd = ['scripts/generate-update-manifest.js', version, channel, arch, platform];
@@ -114,6 +127,14 @@ if (existsSync(makeDir)) {
   for (const f of readdirSync(makeDir)) {
     if (/\.(dmg|deb|rpm)$/.test(f)) assets.add(path.join(makeDir, f));
   }
+}
+
+// A dry run builds nothing, so list the names a darwin build will produce.
+if (dryRun && assets.size === 0 && platform === 'darwin') {
+  const n = expectedDarwinNames({ productName: product.productName, version, arch, channel });
+  assets.add(path.join(payloadDir, n.zip));
+  assets.add(path.join(payloadDir, n.yml));
+  assets.add(path.join(makeDir, n.dmg));
 }
 
 const files = [...assets];
