@@ -201,6 +201,7 @@ import {
   startHeartbeat as startAnalyticsHeartbeat,
   track as trackAnalyticsEvent,
 } from './coscientistAnalytics';
+import { PRODUCT_DISPLAY_NAME, USER_DATA_DIR } from '../shared/product';
 const isSmokeTest = process.argv.includes('--smoke-test');
 
 // R9 (docs/design/mcp-hosting.md): `--smoke-test` boots the whole app and
@@ -1787,7 +1788,6 @@ ipcMain.handle('jupyter:shutdownKernel', (_event, kernelId: string) => {
 
 // Command log IPC handlers
 import { commandLogger } from './commandLogger';
-import { PRODUCT_DISPLAY_NAME, USER_DATA_DIR } from '../shared/product';
 
 ipcMain.handle('commandLog:getAll', () => commandLogger.getAll());
 ipcMain.handle('commandLog:getByApp', (_event, appDirName: string) => commandLogger.getByApp(appDirName));
