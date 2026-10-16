@@ -1,6 +1,6 @@
 # Acabox PI: port plan
 
-**Status: plan agreed, increment 0 starting (2026-10-15).** The owner answered
+**Status: increment 0 merged 2026-10-16 (PR #1, verified on the Mac mini), v0.2.0 released as a packaging and coexistence check; increment 1 next.** Plan agreed 2026-10-15. The owner answered
 the ten decisions in section 9 on 2026-10-15; the answers are recorded there
 and folded into D8, D10, D15, P1-16, P2-05, P3-05 and P5-07. Everything else in
 this document is settled by measurement or by reading code, and each claim

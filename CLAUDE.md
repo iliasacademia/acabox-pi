@@ -83,6 +83,22 @@ still apply to every file it describes.
 
 ## Status
 
+- **2026-10-16 — Increment 0 merged (PR #1) and v0.2.0 released.** The Mac mini
+  verified the final head (tsc clean, 168 suites, 2619 tests, smoke exit 0)
+  after one real bug it caught that Linux could not: P0-03's import sat at
+  line 1790 of `main/index.ts`, below the top-level `app.setName`, so the main
+  process threw `Cannot access 'product_1' before initialization`. Released
+  from the laptop with `npm run release` to `iliasacademia/acabox-pi-releases`:
+  `Acabox-PI-0.2.0-arm64.dmg`, the zip and `latest-mac.yml` (anonymously
+  downloadable, sha512 matches the zip); bundle ad-hoc signed, id
+  `com.electron.acabox-pi`, `Resources/pi` 16 MB, `Resources/bin` rg 15.1.0 and
+  fd 10.3.0. **This build still runs chats on the Claude Agent SDK**: the
+  harness swap is increment 1. NOT verified: launching the packaged app
+  (a fresh download needs right-click → Open), `fresh-install` on a two-app
+  machine. Next: increment 1 tickets as cloud sessions; the mini's verifier
+  (`scripts/mini/`) re-verifies every push.
+
+
 - **2026-10-16 — Increment 0 built in the cloud (P0-02…P0-08), awaiting
   Mac acceptance.** `product.json` is the single identity source
   (`shared/product.ts`); `build/pi` is assembled and probed by
