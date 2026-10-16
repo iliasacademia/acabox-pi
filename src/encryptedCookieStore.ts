@@ -4,6 +4,7 @@ import * as crypto from 'crypto';
 import { Cookie, Store } from 'tough-cookie';
 import { app } from 'electron';
 import { defaultLogger as logger } from './utils/logger';
+import { PRODUCT_NAME } from './cobuilding/shared/product';
 
 /**
  * Encrypted cookie store that uses AES-256-GCM encryption
@@ -35,7 +36,7 @@ export class EncryptedCookieStore extends Store {
       const machineId = this.getOrCreateMachineId();
       const password = machineId;
       const env = app.isPackaged ? 'production' : 'development';
-      const salt = crypto.createHash('sha256').update(`acabox-cookie-store:${env}`).digest();
+      const salt = crypto.createHash('sha256').update(`${PRODUCT_NAME}-cookie-store:${env}`).digest();
       const key = crypto.pbkdf2Sync(password, salt, 100000, 32, 'sha256');
 
       return key;

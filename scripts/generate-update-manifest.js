@@ -42,6 +42,13 @@ if (platform === 'darwin') {
   updatePath = path.join(outputDir, updateFile);
 }
 
+// The url must equal the final GitHub asset name, which has no spaces (see
+// release-names.js). release.mjs renames first; this guards a direct run.
+if (/\s/.test(updateFile)) {
+  console.error(`Update file "${updateFile}" contains whitespace; run release.mjs, which hyphenates artifact names first.`);
+  process.exit(1);
+}
+
 console.log(`Generating manifest for ${updateFile}...`);
 
 // Calculate SHA512

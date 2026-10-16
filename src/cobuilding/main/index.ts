@@ -201,6 +201,7 @@ import {
   startHeartbeat as startAnalyticsHeartbeat,
   track as trackAnalyticsEvent,
 } from './coscientistAnalytics';
+import { PRODUCT_DISPLAY_NAME, USER_DATA_DIR } from '../shared/product';
 const isSmokeTest = process.argv.includes('--smoke-test');
 
 // R9 (docs/design/mcp-hosting.md): `--smoke-test` boots the whole app and
@@ -359,8 +360,8 @@ process.on('unhandledRejection', (reason) => {
   }
 });
 
-app.setName('Acabox');
-app.setPath('userData', path.join(app.getPath('appData'), 'acabox', app.isPackaged ? 'production' : 'development'));
+app.setName(PRODUCT_DISPLAY_NAME);
+app.setPath('userData', path.join(app.getPath('appData'), USER_DATA_DIR, app.isPackaged ? 'production' : 'development'));
 
 // Single instance, and it MUST come after the setPath above: Electron keys the
 // lock on userData, and userData is channel-scoped, so a dev run and a packaged
@@ -708,7 +709,7 @@ function createMainWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
-    title: 'Acabox',
+    title: PRODUCT_DISPLAY_NAME,
     show: false,
     // The renderer draws its own 40px window-chrome bar (Command Desk design);
     // native traffic lights sit inset inside it. The bar is the drag region.

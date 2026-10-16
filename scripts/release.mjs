@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Build Acabox and publish a GitHub Release that electron-updater consumes.
+ * Build Acabox PI and publish a GitHub Release that electron-updater consumes.
  *
  * Pipeline:
  *   1. electron-forge make  (signs during packaging — see the note at step 1)
@@ -12,13 +12,14 @@
  *
  * The release REPO must be PUBLIC so the installed app can download update
  * assets without an embedded token. Create it once:
- *     gh repo create iliasacademia/acabox-releases --public
+ *     gh repo create iliasacademia/acabox-pi-releases --public
  *
  * Usage:
  *   npm run release                       # build + publish package.json version
  *   node scripts/release.mjs --dry-run    # print the plan, change nothing
  *   node scripts/release.mjs --skip-make  # reuse an existing out/make build
  *   node scripts/release.mjs --repo owner/name
+ *   node scripts/release.mjs --dry-run --platform darwin --arch arm64   # plan for a Mac build from any host
  *
  * Bump "version" in package.json before releasing — electron-updater compares
  * the release version against the installed app's version. Tags must be unique.
@@ -27,6 +28,9 @@
 import { execFileSync, execSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
+import { createRequire } from 'node:module';
+
+const { hyphenateDir, expectedDarwinNames } = createRequire(import.meta.url)('./release-names.js');
 
 const args = process.argv.slice(2);
 const hasFlag = (f) => args.includes(f);
@@ -39,16 +43,17 @@ const dryRun = hasFlag('--dry-run');
 const skipMake = hasFlag('--skip-make');
 
 const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
+const product = JSON.parse(readFileSync('product.json', 'utf8'));
 const version = pkg.version;
 const tag = `v${version}`;
 const repo =
-  getOpt('--repo') || process.env.ACABOX_RELEASE_REPO || 'iliasacademia/acabox-releases';
-const arch = process.arch; // arm64 | x64
-const platform = process.platform; // darwin | win32 | linux
+  getOpt('--repo') || process.env[`${product.envPrefix}_RELEASE_REPO`] || `${product.releaseOwner}/${product.releaseRepo}`;
+const arch = getOpt('--arch') || process.arch; // arm64 | x64
+const platform = getOpt('--platform') || process.platform; // darwin | win32 | linux
 const channel = 'latest'; // electron-updater default channel → latest-mac.yml / latest.yml
 
 console.log(
-  `Acabox release ${tag}  →  ${repo}  (${platform}/${arch})${dryRun ? '  [dry run]' : ''}`,
+  `${product.productName} release ${tag}  →  ${repo}  (${platform}/${arch})${dryRun ? '  [dry run]' : ''}`,
 );
 
 function sh(cmd) {
@@ -83,6 +88,15 @@ if (!skipMake) {
   sh('npm run make');
 }
 
+// 2a. Hyphenate artifact names ------------------------------------------------
+// Forge names files after productName ("Acabox PI-darwin-arm64-<v>.zip") and
+// GitHub rewrites spaces in asset names, which would break the url in
+// latest-mac.yml. Rename before the manifest is generated.
+const payloadDirForNames = platform === 'darwin' ? path.join('out/make', 'zip', platform, arch) : path.join('out/make', 'squirrel.windows', arch);
+for (const dir of ['out/make', payloadDirForNames]) {
+  for (const [from, to] of hyphenateDir(dir, { dryRun })) console.log(`rename ${path.join(dir, from)} -> ${to}`);
+}
+
 // 2. Generate electron-updater metadata (reuses the existing generator) ------
 {
   const cmd = ['scripts/generate-update-manifest.js', version, channel, arch, platform];
@@ -115,6 +129,14 @@ if (existsSync(makeDir)) {
   }
 }
 
+// A dry run builds nothing, so list the names a darwin build will produce.
+if (dryRun && assets.size === 0 && platform === 'darwin') {
+  const n = expectedDarwinNames({ productName: product.productName, version, arch, channel });
+  assets.add(path.join(payloadDir, n.zip));
+  assets.add(path.join(payloadDir, n.yml));
+  assets.add(path.join(makeDir, n.dmg));
+}
+
 const files = [...assets];
 if (!dryRun && files.length === 0) {
   console.error('No artifacts found under out/make — did the build run? (try without --skip-make)');
@@ -141,7 +163,7 @@ const quoted = files.map((f) => `'${f}'`).join(' ');
 if (releaseExists) {
   sh(`gh release upload ${tag} ${quoted} --repo ${repo} --clobber`);
 } else {
-  sh(`gh release create ${tag} ${quoted} --repo ${repo} --title 'Acabox ${tag}' --notes 'Acabox ${version}'`);
+  sh(`gh release create ${tag} ${quoted} --repo ${repo} --title '${product.productName} ${tag}' --notes '${product.productName} ${version}'`);
 }
 
 console.log(dryRun ? '\nDry run complete — nothing was built or published.' : `\nPublished ${tag} to ${repo}.`);

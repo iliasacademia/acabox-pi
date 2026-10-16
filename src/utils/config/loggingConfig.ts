@@ -1,5 +1,6 @@
 import { app } from 'electron';
 import { getDeviceId } from '../deviceId';
+import { PRODUCT_NAME } from '../../cobuilding/shared/product';
 
 // Helper function to detect channel from version string
 export function getChannelFromVersion(): 'stable' | 'beta' {
@@ -31,7 +32,7 @@ export const LOGGING_CONFIG = {
     enabled: process.env.DATADOG_ENABLED === 'true' || app.isPackaged,
     clientToken: process.env.DATADOG_CLIENT_TOKEN || '',
     site: process.env.DATADOG_SITE || 'datadoghq.com',
-    service: 'acabox',
+    service: PRODUCT_NAME,
     env: app.isPackaged ? 'production' : 'development',
     // RUM application id — required for Datadog RUM browser SDK. Public, safe to bundle.
     rumApplicationId: process.env.DATADOG_APPLICATION_ID || '',

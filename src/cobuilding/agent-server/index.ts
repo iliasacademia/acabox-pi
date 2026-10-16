@@ -227,7 +227,7 @@ function createMcpRelayHandler(
  * Create all MCP proxy servers that relay calls to the Electron host.
  * Tool definitions are defined here — they match the host-side MCP servers.
  */
-function createMcpRelayServers(state: SessionState) {
+export function createMcpRelayServers(state: SessionState) {
   const relay = (server: string, name: string) => createMcpRelayHandler(state, server, name);
 
   return {

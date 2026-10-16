@@ -14,7 +14,7 @@ const path = require('path');
 
 if (process.platform !== 'darwin') process.exit(0);
 
-const PRODUCT_NAME = 'Acabox';
+const PRODUCT_NAME = require('../product.json').productName;
 const appDir = path.join(__dirname, '..', 'node_modules', 'electron', 'dist', 'Electron.app');
 const plist = path.join(appDir, 'Contents', 'Info.plist');
 

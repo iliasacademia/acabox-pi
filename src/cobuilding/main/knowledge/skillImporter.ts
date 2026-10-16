@@ -81,6 +81,7 @@ import {
   parseSkillFrontmatter,
   validateSkillId,
 } from '../../shared/skills';
+import { PRODUCT_DISPLAY_NAME } from '../../shared/product';
 
 const execFileAsync = promisify(execFile);
 
@@ -236,7 +237,7 @@ function apiHeaders(accept: string, token?: string): Record<string, string> {
     // GitHub rejects API requests with no User-Agent. Chromium supplies one,
     // but naming ourselves makes the request identifiable in their logs and in
     // a proxy trace.
-    'User-Agent': 'Acabox',
+    'User-Agent': PRODUCT_DISPLAY_NAME,
     'X-GitHub-Api-Version': '2022-11-28',
   };
   if (token) headers.Authorization = `Bearer ${token}`;

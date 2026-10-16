@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import log from 'electron-log';
 import { checkSelfUpdateSupported, runSelfUpdate, UpdateFileInfo } from './selfUpdater';
+import { ENV_PREFIX, RELEASE_OWNER, RELEASE_REPO } from '../shared/product';
 
 declare const COBUILD_UPDATE_WINDOW_WEBPACK_ENTRY: string;
 declare const COBUILD_UPDATE_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
@@ -12,15 +13,15 @@ declare const COBUILD_UPDATE_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
 // but for the *installed* app to download updates without shipping a token,
 // the RELEASE repo must be PUBLIC. Recommended: a dedicated public repo that
 // holds only built artifacts:
-//     gh repo create iliasacademia/acabox-releases --public
+//     gh repo create iliasacademia/acabox-pi-releases --public
 //
 // The baked-in defaults below are what production builds use. The env
 // overrides exist only for testing against a different repo.
-const UPDATE_OWNER = process.env.ACABOX_UPDATE_OWNER || 'iliasacademia';
-const UPDATE_REPO = process.env.ACABOX_UPDATE_REPO || 'acabox-releases';
+const UPDATE_OWNER = process.env[`${ENV_PREFIX}_UPDATE_OWNER`] || RELEASE_OWNER;
+const UPDATE_REPO = process.env[`${ENV_PREFIX}_UPDATE_REPO`] || RELEASE_REPO;
 // Set ONLY if the release repo is PRIVATE — NOT recommended: the token ships
 // inside the app bundle and is extractable. Prefer a public release repo.
-const UPDATE_TOKEN = process.env.ACABOX_UPDATE_TOKEN || undefined;
+const UPDATE_TOKEN = process.env[`${ENV_PREFIX}_UPDATE_TOKEN`] || undefined;
 
 let updateWindow: BrowserWindow | null = null;
 let updaterConfigured = false;

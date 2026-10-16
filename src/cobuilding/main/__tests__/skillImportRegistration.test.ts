@@ -16,6 +16,7 @@
  *
  * The node environment (not jsdom) matches `skillImporter.test.ts`.
  */
+import { itMac } from '../../../test/platform';
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -271,7 +272,7 @@ describe('registerImportedSkill — imports start off the roster', () => {
 });
 
 describe('registerImportedSkill — symlinks never reach the store', () => {
-  it('strips a symlink out of a real archive before the skill is registered', async () => {
+  itMac('bsdtar flags are rejected by GNU tar', 'strips a symlink out of a real archive before the skill is registered', async () => {
     // bsdtar refuses `..` in a path but happily materialises an ABSOLUTE
     // symlink, and Acabox's workspace reaper never looks inside
     // `.claude/skills/<id>/`. So this is a real hole, and the fix has to be

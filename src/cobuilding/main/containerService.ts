@@ -7,6 +7,7 @@
  * without modification.
  */
 
+import { getBundledBinDir } from './bundledBin';
 import { execFile, spawn, type ChildProcess } from 'child_process';
 import { promisify } from 'util';
 import { randomUUID } from 'crypto';
@@ -116,7 +117,8 @@ function buildSubprocessEnv(caller: ProxyCallerRef = { kind: 'chat' }): NodeJS.P
     COSCIENTIST_VENV_DIR: venvDir,
     COSCIENTIST_NPM_PREFIX: npmPrefix,
     NODE_PATH: getNpmNodeModulesPath(),
-    PATH: [venvBinDir, npmBinDir, existingPath].filter(Boolean).join(binSep),
+    // Bundled rg/fd come first so PI's grep/find find them before trying to download.
+    PATH: [getBundledBinDir(), venvBinDir, npmBinDir, existingPath].filter(Boolean).join(binSep),
     // How subprocesses reach configured APIs. Absent when the proxy is down,
     // which is a supported state — `buildApiGuidance` is skipped in the same
     // condition, so the agent is never told about a facility that isn't there.

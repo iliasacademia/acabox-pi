@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Generates the ACABOX macOS icon + tray asset set from the source-of-truth
+// Generates the Acabox PI macOS icon + tray asset set from the source-of-truth
 // SVGs in src/assets/brand/. Reproducible: re-run whenever the mark changes.
 //
 //   node scripts/gen-icons.mjs
@@ -66,9 +66,17 @@ for (const [name, px] of ICONSET) {
   writeFileSync(join(iconset, name), renderPng(markFor(px), px));
 }
 
-execFileSync('iconutil', ['-c', 'icns', '-o', join(OUT, 'dock-icon.icns'), iconset], {
-  stdio: 'inherit',
-});
+// Acabox PI's tile is violet (#6d28d9, set in the brand SVGs) so it reads
+// differently from Acabox's blue in the Dock and menu bar. `iconutil` exists
+// only on macOS; elsewhere the PNGs are regenerated and dock-icon.icns is left
+// as is (regenerate it on a Mac).
+if (process.platform === 'darwin') {
+  execFileSync('iconutil', ['-c', 'icns', '-o', join(OUT, 'dock-icon.icns'), iconset], {
+    stdio: 'inherit',
+  });
+} else {
+  console.warn('iconutil unavailable: dock-icon.icns NOT regenerated (run this on a Mac)');
+}
 rmSync(tmp, { recursive: true, force: true });
 
 // ── dock-icon.png: 1024 master, used by tray.ts's dock/tray compositor ──────
@@ -86,4 +94,4 @@ const trayGlyph = glyphSvg
 writeFileSync(join(OUT, 'trayTemplate.png'), renderPng(trayGlyph, 18));
 writeFileSync(join(OUT, 'trayTemplate@2x.png'), renderPng(trayGlyph, 36));
 
-console.log('Wrote dock-icon.icns, dock-icon.png, trayTemplate.png, trayTemplate@2x.png to src/assets/icons/');
+console.log(`Wrote ${process.platform === 'darwin' ? 'dock-icon.icns, ' : ''}dock-icon.png, trayTemplate.png, trayTemplate@2x.png to src/assets/icons/`);

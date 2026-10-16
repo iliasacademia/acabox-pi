@@ -4,6 +4,7 @@ const os = require('os');
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+const product = require('./product.json');
 
 function isPortInUse(port) {
   try {
@@ -101,9 +102,9 @@ function resolveEsbuildBinary() {
 const esbuildBinary = resolveEsbuildBinary();
 
 const packagerConfig = {
-  name: 'Acabox',
+  name: product.productName,
   icon: './src/assets/icons/dock-icon',
-  appBundleId: 'com.electron.acabox',
+  appBundleId: product.bundleId,
   derefSymlinks: true,
   prune: false,
   // No custom URL scheme: the only deep link was the academia QR-auth callback,
@@ -113,6 +114,11 @@ const packagerConfig = {
   },
   extraResource: [
     'dist/agent-server.js',
+    // PI harness (plan D2): assembled by scripts/build-pi-bundle.mjs into build/pi,
+    // loaded by file URL from <Resources>/pi, never bundled by webpack.
+    'build/pi',
+    // rg + fd for PI's grep/find (resources/bin/README.md); lands at <Resources>/bin.
+    'resources/bin',
     // Mini-app bundler. MUST be the real binary under esbuild/bin, not the
     // node_modules/.bin symlink (extraResource copies it verbatim, and a
     // dangling symlink in Resources/ is worse than nothing). Lands at
@@ -141,15 +147,15 @@ const packagerConfig = {
   ],
   ...(platform === 'darwin' ? {
     extendInfo: {
-      NSDesktopFolderUsageDescription: 'Acabox needs access to your Desktop to manage workspace files.',
-      NSDocumentsFolderUsageDescription: 'Acabox needs access to your Documents to manage workspace files.',
-      NSDownloadsFolderUsageDescription: 'Acabox needs access to your Downloads to manage workspace files.',
+      NSDesktopFolderUsageDescription: `${product.productName} needs access to your Desktop to manage workspace files.`,
+      NSDocumentsFolderUsageDescription: `${product.productName} needs access to your Documents to manage workspace files.`,
+      NSDownloadsFolderUsageDescription: `${product.productName} needs access to your Downloads to manage workspace files.`,
       // Required for voice dictation. The helper binary is not itself bundled,
-      // so TCC resolves both strings against Acabox.app as the responsible
+      // so TCC resolves both strings against ${product.productName}.app as the responsible
       // process — omit either one and the helper is killed on first use rather
       // than being denied gracefully.
-      NSMicrophoneUsageDescription: 'Acabox uses your microphone to dictate messages into the chat composer. Audio is transcribed on this Mac and never leaves it.',
-      NSSpeechRecognitionUsageDescription: 'Acabox transcribes your dictation using macOS on-device speech recognition. Audio is not sent to Apple or to Anthropic.',
+      NSMicrophoneUsageDescription: `${product.productName} uses your microphone to dictate messages into the chat composer. Audio is transcribed on this Mac and never leaves it.`,
+      NSSpeechRecognitionUsageDescription: `${product.productName} transcribes your dictation using macOS on-device speech recognition. Audio is not sent to Apple or to any AI provider.`,
     },
   } : {}),
 };
@@ -209,9 +215,9 @@ module.exports = {
     {
       name: '@electron-forge/maker-squirrel',
       config: {
-        name: 'Acabox',
+        name: product.productName.replace(/\s+/g, ''),
         authors: 'Academia.edu',
-        description: 'Acabox',
+        description: product.productName,
         certificateFile: process.env.WINDOWS_CERTIFICATE_FILE,
         certificatePassword: process.env.WINDOWS_CERTIFICATE_PASSWORD,
       },

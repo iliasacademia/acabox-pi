@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { PRODUCT_DISPLAY_NAME } from '../../../shared/product';
 import { AcaboxMark } from './AcaboxMark';
 import { chromeHealth } from './chromeHealth';
 
@@ -41,13 +42,13 @@ export function ChromeBar({ right }: { right?: React.ReactNode }) {
             now runs as host child processes. The old string claimed a VM that has
             not existed since the slim-down — the same class of stale copy the
             de-Podman pass cleaned out of the agent-facing docs. */}
-        <span>ACABOX · V{version}</span>
+        <span>{PRODUCT_DISPLAY_NAME.toUpperCase()} · V{version}</span>
       </div>
       <div className="cdChrome__right">
         {right}
         <span
           className="cdChrome__health"
-          title={health === 'offline' ? 'The assistant stopped. Quit and reopen Acabox.' : undefined}
+          title={health === 'offline' ? 'The assistant stopped. Quit and reopen ' + PRODUCT_DISPLAY_NAME + '.' : undefined}
         >
           <span
             className="cdDot"

@@ -19,6 +19,7 @@
  * The node environment (not jsdom) is required: jsdom provides no `fetch`,
  * which the end-to-end case needs.
  */
+import { describeMac } from '../../../test/platform';
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -255,7 +256,7 @@ describe('scanTree', () => {
   });
 });
 
-describe('fetchSubtree', () => {
+describeMac('bsdtar flags are rejected by GNU tar', 'fetchSubtree', () => {
   /** Point net.fetch at a local archive, as if codeload had served it. */
   function serveArchive(tarPath: string): jest.Mock {
     const fetchMock = jest.fn(async (url: string) => {
@@ -619,7 +620,7 @@ describe('checkForUpdate', () => {
   });
 });
 
-describe('fetchCatalogue', () => {
+describeMac('bsdtar flags are rejected by GNU tar', 'fetchCatalogue', () => {
   /**
    * A repo shaped like `openai/plugins`: a marketplace manifest whose entries
    * name a plugin DIRECTORY, with skills nested underneath.
@@ -821,7 +822,7 @@ async function online(): Promise<boolean> {
   }
 }
 
-describe('end to end against real GitHub', () => {
+describeMac('bsdtar flags are rejected by GNU tar', 'end to end against real GitHub', () => {
   let reachable = false;
 
   beforeAll(async () => {

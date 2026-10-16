@@ -10,6 +10,7 @@ import { recordSpawn, clearSpawn, hostedServerDir } from './store';
 import { ServerCallQueue } from './callQueue';
 import { diagnose } from './diagnose';
 import type { HostedMcpRecord, HostedRunState, HostedStatus, HostedToolDescriptor } from '../../shared/hostedMcp';
+import { PRODUCT_NAME } from '../../shared/product';
 
 /**
  * The supervisor: spawn, readiness, health, restart policy, and teardown for
@@ -390,7 +391,7 @@ async function runAttempt(handle: Handle, attempt: Attempt): Promise<void> {
     env: buildHostedEnv(record),
     stderr: 'pipe',
   });
-  const client = new Client({ name: 'acabox-mcp-host', version: '0.0.0' });
+  const client = new Client({ name: `${PRODUCT_NAME}-mcp-host`, version: '0.0.0' });
 
   handle.transport = transport;
   handle.client = client;

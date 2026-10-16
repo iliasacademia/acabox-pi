@@ -19,6 +19,7 @@
  * real state file through `manifestIO`, and the real `buildSkillRuntimeConfig`
  * reading back what was written.
  */
+import { describeMac, itMac } from '../../../test/platform';
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -210,7 +211,7 @@ describe('a failed import leaves nothing behind', () => {
    * staged-skill MAP, and a stage that threw never got into it — so if the
    * failure path does not clean up after itself, no later code can.
    */
-  it.each([
+  const cases: [string, () => ImportRequest, RegExp][] = [
     [
       'a subpath with no SKILL.md',
       () => {
@@ -272,7 +273,8 @@ describe('a failed import leaves nothing behind', () => {
       () => ({ kind: 'local-folder', localPath: path.join(tmpRoot, 'nowhere') }) as ImportRequest,
       /not a directory/i,
     ],
-  ])('%s: no store directory, no state entry, no temp directory', async (_label, setup, expected) => {
+  ];
+  const run = async ([_label, setup, expected]: [string, () => ImportRequest, RegExp]) => {
     const tempBefore = leakedStagingDirs();
     const storeBefore = fs.existsSync(storeRoot) ? fs.readdirSync(storeRoot).sort() : [];
     const stateBefore = Object.keys((await readSkillsState()).skills).sort();
@@ -287,7 +289,14 @@ describe('a failed import leaves nothing behind', () => {
     expect(fs.existsSync(storeRoot) ? fs.readdirSync(storeRoot).sort() : []).toEqual(storeBefore);
     expect(Object.keys((await readSkillsState()).skills).sort()).toEqual(stateBefore);
     expect(leakedStagingDirs()).toEqual(tempBefore);
-  });
+  };
+  // The first two cases extract a real archive with /usr/bin/tar (bsdtar flags).
+  for (const c of cases.slice(0, 2)) {
+    itMac('bsdtar flags are rejected by GNU tar', `${c[0]}: no store directory, no state entry, no temp directory`, () => run(c));
+  }
+  for (const c of cases.slice(2)) {
+    it(`${c[0]}: no store directory, no state entry, no temp directory`, () => run(c));
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -299,7 +308,7 @@ describe('one registration path, and the roster rule is behind it', () => {
    * could carry it in — this drives the real `commitImport` with hostile extra
    * keys on the request to prove none of them reach the record.
    */
-  it('a GitHub import lands off the roster, whatever the request carries', async () => {
+  itMac('bsdtar flags are rejected by GNU tar', 'a GitHub import lands off the roster, whatever the request carries', async () => {
     mockNetFetch = async () =>
       serveFile(
         buildArchive({
@@ -353,7 +362,7 @@ describe('one registration path, and the roster rule is behind it', () => {
 // ---------------------------------------------------------------------------
 
 describe('the safety pass runs on the real import path', () => {
-  it('strips an absolute symlink out of a tarball before anything is registered', async () => {
+  itMac('bsdtar flags are rejected by GNU tar', 'strips an absolute symlink out of a tarball before anything is registered', async () => {
     mockNetFetch = async () =>
       serveFile(
         buildArchive({
@@ -420,7 +429,7 @@ describe('the safety pass runs on the real import path', () => {
 
 // ---------------------------------------------------------------------------
 
-describe('provenance is complete and points at real bytes', () => {
+describeMac('bsdtar flags are rejected by GNU tar', 'provenance is complete and points at real bytes', () => {
   it('records a 40-char SHA, the subpath, a resolving URL and every blob', async () => {
     const files = {
       'skills/provenanced/SKILL.md': skillMd('provenanced', 'Everything recorded.'),
@@ -476,7 +485,7 @@ describe('provenance is complete and points at real bytes', () => {
 
 // ---------------------------------------------------------------------------
 
-describe('the catalogue cache', () => {
+describeMac('bsdtar flags are rejected by GNU tar', 'the catalogue cache', () => {
   const catalogueTarget = (owner: string, repo: string, sha: string) => ({ owner, repo, sha, subpath: '' });
 
   it('never serves one repository for another at the same commit', async () => {
@@ -610,7 +619,7 @@ describe('the catalogue cache', () => {
 
 // ---------------------------------------------------------------------------
 
-describe('staging is not reused across a rename', () => {
+describeMac('bsdtar flags are rejected by GNU tar', 'staging is not reused across a rename', () => {
   it('a second commit of the same request re-stages rather than registering nothing', async () => {
     // The staged tree is MOVED into the store, so the map entry it left behind
     // names a directory that no longer exists. Importing the same skill twice
@@ -674,7 +683,7 @@ describe('staging is not reused across a rename', () => {
  * `Accept: application/vnd.github.sha` contract ever changes. Skipped rather
  * than failed when the network is unreachable.
  */
-describe('end to end against real GitHub', () => {
+describeMac('bsdtar flags are rejected by GNU tar', 'end to end against real GitHub', () => {
   let reachable = false;
 
   beforeAll(async () => {
@@ -756,7 +765,7 @@ describe('end to end against real GitHub', () => {
  * `validateSkillId` — these pin that it does, at the service boundary rather
  * than in the form.
  */
-describe('the store id is validated in main, not in the form', () => {
+describeMac('bsdtar flags are rejected by GNU tar', 'the store id is validated in main, not in the form', () => {
   /** A staged, perfectly ordinary skill; only `asId` is hostile. */
   function legitRequest(repo: string): ImportRequest {
     mockNetFetch = (() => {

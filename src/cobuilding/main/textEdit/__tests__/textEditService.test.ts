@@ -4,6 +4,7 @@
  * The edit service against a real directory on disk, with a fake build that
  * records its calls and can be told to fail. One test uses the real esbuild.
  */
+import { itNotRoot } from '../../../../test/platform';
 import * as esbuild from 'esbuild';
 import * as fs from 'fs';
 import * as fsp from 'fs/promises';
@@ -247,7 +248,7 @@ describe('apply', () => {
     expect(build.calls).toEqual([]);
   });
 
-  it('reports invalid, and builds nothing, when the file cannot be written', async () => {
+  itNotRoot('reports invalid, and builds nothing, when the file cannot be written', async () => {
     const abs = makeTool({ 'App.tsx': APP });
     const { service, build } = makeService();
     fs.chmodSync(path.dirname(abs('App.tsx')), 0o555);
