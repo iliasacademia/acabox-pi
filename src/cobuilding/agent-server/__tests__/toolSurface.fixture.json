@@ -1,0 +1,360 @@
+{
+  "_comment": "Recorded by scripts/record-tool-surface.mjs from the Claude Agent SDK relay servers. Do not hand-edit.",
+  "count": 12,
+  "tools": [
+    {
+      "name": "mcp__activity__query_activity",
+      "server": "activity",
+      "tool": "query_activity",
+      "description": "Query the user's recent activity — browser pages visited and files edited/viewed. Returns raw session data for a time range.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "period": {
+            "description": "Convenience shorthand for common time ranges. Ignored if \"since\" is provided.",
+            "type": "string",
+            "enum": [
+              "today",
+              "last_2h",
+              "last_24h",
+              "this_week"
+            ]
+          },
+          "since": {
+            "description": "ISO timestamp for custom range start. Overrides \"period\".",
+            "type": "string"
+          },
+          "until": {
+            "description": "ISO timestamp for custom range end. Defaults to now.",
+            "type": "string"
+          },
+          "search": {
+            "description": "Filter results by title or URL/path content.",
+            "type": "string"
+          },
+          "source": {
+            "description": "Which sources to include: \"browser\", \"file\", or \"all\". Comma-separated. Defaults to \"all\".",
+            "type": "string"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "mcp__apis__list_apis",
+      "server": "apis",
+      "tool": "list_apis",
+      "description": "List the HTTP APIs configured in Acabox that you can call through the local proxy, with each one's base URL, allowed hosts, whether writes are permitted, and the notes the user wrote about it. Call this when you need an API's exact base path, when a request was refused and you want to see why, or when you suspect an API was added after this conversation started. It never reveals credentials — the proxy attaches those and you must never ask the user for one.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "mcp__chats__list_chats",
+      "server": "chats",
+      "tool": "list_chats",
+      "description": "List the user's other conversations in this workspace, most recent first. Use this when the user names a chat by topic (\"the chat where we built the spend explorer\") instead of pasting a link — search with \"query\" (matches chat titles and the text of messages), then pass the matching chat's link to read_chat.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "description": "Case-insensitive text to find in chat titles or message text.",
+            "type": "string"
+          },
+          "limit": {
+            "description": "Max rows, default 20, max 50.",
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "mcp__chats__read_chat",
+      "server": "chats",
+      "tool": "read_chat",
+      "description": "Read another conversation in this workspace — the one the user pasted a link to (a bare acabox://chat/<id> in their message is a reference to it, not a URL to fetch), or one found via list_chats. Read-only and never includes this session's own secrets. Start with detail \"conversation\" (what the user said and each turn's final reply); use \"full\" only when you need the intermediate steps or tool calls too. If the result says it was truncated, call again with the given from_message_id to continue. Never claim to have read a chat you did not actually load with this tool.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string",
+            "description": "A chat link acabox://chat/<id> exactly as the user pasted it, or the bare id."
+          },
+          "detail": {
+            "description": "\"conversation\" (default): what the user said and each turn's final reply. \"full\": also every intermediate assistant message and one line per tool call.",
+            "type": "string",
+            "enum": [
+              "conversation",
+              "full"
+            ]
+          },
+          "from_message_id": {
+            "description": "Continue from this row id when a previous call reported truncation.",
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "max_chars": {
+            "description": "Character budget, default 30000, max 120000.",
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "include_tool_results": {
+            "description": "With detail \"full\", also include tool outputs (cut to 500 chars each). Off by default — they are large.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "chat"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "mcp__knowledge__record_finding",
+      "server": "knowledge",
+      "tool": "record_finding",
+      "description": "Record a durable finding about a DATA SOURCE, SYSTEM or PROCEDURE into a skill's findings ledger — a table that silently returns zero rows, a join that works, a query form that avoids a timeout, an API quirk. Call this the moment you learn something that would have saved you time had you known it at the start of the turn, BEFORE you finish the turn. Do not write such facts as memory files: memories are recalled probabilistically and cannot carry a .sql file, whereas findings are read deliberately by the skill that owns the domain. This tool never refuses a write — if you are unsure whether a fact is already recorded, record it anyway and let the host relate the two.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "skill": {
+            "type": "string",
+            "description": "Store id of the skill that owns this domain (the directory name under .claude/skills/, e.g. \"coscientist-analytics\")."
+          },
+          "title": {
+            "type": "string",
+            "description": "Short headline, <= 80 chars. Longer titles are truncated, not rejected."
+          },
+          "rule": {
+            "type": "string",
+            "description": "What to do differently next time, in one or two sentences. This is the only text carried into the index and the digest, so make it actionable on its own."
+          },
+          "evidence": {
+            "type": "string",
+            "description": "What you actually measured — the query, the row counts, the error. Numbers, not impressions."
+          },
+          "cost_if_unknown": {
+            "description": "What goes wrong for someone who does not know this. Usually the reason it is worth recording.",
+            "type": "string"
+          },
+          "scope": {
+            "description": "Tables, systems or endpoints this applies to (e.g. [\"public.users\"]). Drives which bucket file the entry lands in, so keep it consistent across related findings.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "supersedes": {
+            "description": "Ids of findings this one corrects (e.g. [\"F-006\"]). Triggers archival of the old entry and a grep for other places the old belief is written down.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "confirms": {
+            "description": "Ids of findings this one independently re-confirms.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "blast_radius": {
+            "description": "Other files you know assert the superseded belief. The host greps for more; anything you already know goes here.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "skill",
+          "title",
+          "rule",
+          "evidence"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "mcp__mini-apps__build_and_open_mini_application",
+      "server": "mini-apps",
+      "tool": "build_and_open_mini_application",
+      "description": "Bundle a mini-application with esbuild and open it in the UI in one atomic step. Use this after creating a new mini-app, or after editing an existing app whose changes you want the user to see. If the build fails, the tool returns the esbuild error so you can fix the source and call again.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "dir_name": {
+            "type": "string",
+            "description": "The directory name of the mini-application (lowerCamelCase name under .applications/)"
+          }
+        },
+        "required": [
+          "dir_name"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "mcp__mini-apps__call_published_tool",
+      "server": "mini-apps",
+      "tool": "call_published_tool",
+      "description": "Invoke a tool exposed by another open mini-application. The target mini-app must be currently loaded in the UI (its iframe registers when shown, unregisters when closed). The result is whatever JSON the mini-app returns.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "server_name": {
+            "type": "string",
+            "description": "serverName from list_published_servers"
+          },
+          "tool_name": {
+            "type": "string",
+            "description": "name of the tool to invoke (from the server's tools list)"
+          },
+          "arguments": {
+            "description": "Arguments matching the tool's input_schema",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "server_name",
+          "tool_name"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "mcp__mini-apps__list_published_servers",
+      "server": "mini-apps",
+      "tool": "list_published_servers",
+      "description": "List MCP servers currently published by other open mini-applications. Each entry includes serverName, dirName, and the tools the mini-app exposes (name + description + input schema). Use this to discover what callable services other mini-apps offer before invoking them.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "mcp__mini-apps__open_mini_application",
+      "server": "mini-apps",
+      "tool": "open_mini_application",
+      "description": "Open an existing, already-built mini-application in the UI. The mini-application will take over the center content area and the chat will move to the right sidebar. Use this when the user asks to open an app that already has a built bundle. After creating or editing a mini-app, use build_and_open_mini_application instead so the latest source is bundled before display.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "dir_name": {
+            "type": "string",
+            "description": "The directory name of the mini-application (lowerCamelCase name under .applications/)"
+          }
+        },
+        "required": [
+          "dir_name"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "mcp__notification__show_notification",
+      "server": "notification",
+      "tool": "show_notification",
+      "description": "Show a native desktop notification to the user. Use this to alert about completed tasks or important updates.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "The notification title."
+          },
+          "body": {
+            "type": "string",
+            "description": "The notification body text."
+          },
+          "navigation": {
+            "description": "Optional navigation action when the user clicks the notification.",
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "thread",
+                  "sidebar"
+                ],
+                "description": "The type of navigation action."
+              },
+              "threadId": {
+                "description": "Thread ID to navigate to (required for \"thread\" type).",
+                "type": "string"
+              },
+              "sidebarTab": {
+                "description": "Sidebar tab to show.",
+                "type": "string",
+                "enum": [
+                  "home",
+                  "chats",
+                  "tools",
+                  "knowledge",
+                  "servers",
+                  "files",
+                  "activity",
+                  "debug",
+                  "settings"
+                ]
+              }
+            },
+            "required": [
+              "type"
+            ]
+          }
+        },
+        "required": [
+          "title",
+          "body"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "mcp__workspace__get_research_profile",
+      "server": "workspace",
+      "tool": "get_research_profile",
+      "description": "Get the user's research profile generated during the workspace onboarding scan. Returns a summary of who the user is, their research field, and what they are currently working on.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "mcp__workspace__get_scanned_files",
+      "server": "workspace",
+      "tool": "get_scanned_files",
+      "description": "List files discovered in the workspace during the onboarding scan, with their type tags (manuscript, grant, presentation, reference). Optionally filter by file_type.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "file_type": {
+            "description": "Filter results to a specific file type. Returns all types if omitted.",
+            "type": "string",
+            "enum": [
+              "manuscript",
+              "grant",
+              "presentation",
+              "reference"
+            ]
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    }
+  ]
+}
